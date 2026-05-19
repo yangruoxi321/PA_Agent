@@ -12,6 +12,14 @@ if TYPE_CHECKING:
 from pa_agent.config.settings import AIProviderSettings
 from pa_agent.security.secret_store import mask_secret
 
+try:
+    from openai import OpenAI as _OpenAI  # type: ignore[import]
+except ImportError as _exc:
+    _OpenAI = None  # type: ignore[assignment,misc]
+    _OPENAI_IMPORT_ERROR = _exc
+else:
+    _OPENAI_IMPORT_ERROR = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,12 +89,10 @@ class DeepSeekClient:
             len(messages),
         )
 
-        try:
-            from openai import OpenAI  # type: ignore[import]
-        except ImportError as exc:
-            raise RuntimeError("openai package is not installed") from exc
+        if _OpenAI is None:
+            raise RuntimeError("openai package is not installed") from _OPENAI_IMPORT_ERROR
 
-        client = OpenAI(
+        client = _OpenAI(
             base_url=self._settings.base_url,
             api_key=self._settings.api_key,
         )
@@ -201,12 +207,10 @@ class DeepSeekClient:
             len(messages),
         )
 
-        try:
-            from openai import OpenAI  # type: ignore[import]
-        except ImportError as exc:
-            raise RuntimeError("openai package is not installed") from exc
+        if _OpenAI is None:
+            raise RuntimeError("openai package is not installed") from _OPENAI_IMPORT_ERROR
 
-        client = OpenAI(
+        client = _OpenAI(
             base_url=self._settings.base_url,
             api_key=self._settings.api_key,
         )
@@ -222,8 +226,9 @@ class DeepSeekClient:
         cached_tokens = 0
 
         try:
-            # Use stream_options to get usage in the final chunk.
-            # Some providers may not support it; we catch and retry without it.
+            # Build kwargs with stream_options to get usage in the final chunk.
+            # Some providers may not support it; if the create() call itself
+            # rejects stream_options we retry without it.
             stream_kwargs: dict[str, Any] = {
                 "model": self._settings.model,
                 "messages": messages,
@@ -236,21 +241,13 @@ class DeepSeekClient:
 
             try:
                 stream = client.chat.completions.create(**stream_kwargs)
-                # Consume one chunk to verify stream_options is accepted
-                first_chunk = next(iter(stream), None)
             except Exception:
                 # Retry without stream_options if provider rejects it
+                self._log.debug("stream_options not supported; retrying without it")
                 stream_kwargs.pop("stream_options", None)
                 stream = client.chat.completions.create(**stream_kwargs)
-                first_chunk = next(iter(stream), None)
 
-            chunks = ([first_chunk] if first_chunk is not None else [])
-
-            def _iter_all():
-                yield from chunks
-                yield from stream
-
-            for chunk in _iter_all():
+            for chunk in stream:
                 # Check cancellation on each chunk
                 if cancel_token is not None and cancel_token.is_set():
                     raise CancelledError("Request cancelled during streaming")

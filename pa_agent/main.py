@@ -10,9 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> int:
-    # Configure basic logging early (before bootstrap, which may log warnings)
-    from pa_agent.util.logging import configure_logging
-    configure_logging()
+    # Logging is configured inside AppContext.bootstrap() with the real API key
+    # for masking. No need to call configure_logging() here separately.
 
     argv = list(sys.argv if argv is None else argv)
     app = QApplication(argv)

@@ -7,7 +7,8 @@ from __future__ import annotations
 from pathlib import Path
 
 # ── Root ──────────────────────────────────────────────────────────────────────
-PROJECT_ROOT: Path = Path(r"D:\cl\PA_Agent")
+# Resolve dynamically: this file is pa_agent/config/paths.py, so go up 3 levels.
+PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 # ── Prompt engineering assets (read-only at runtime) ─────────────────────────
 PROMPT_DIR: Path = PROJECT_ROOT / "prompt_engineering"

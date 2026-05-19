@@ -54,6 +54,12 @@ def configure_logging(api_key: str = "") -> None:
     """
     global _configured  # noqa: PLW0603
 
+    if _configured:
+        # Only update the masking key if already configured; skip re-adding handlers.
+        if api_key:
+            update_api_key(api_key)
+        return
+
     # Build formatters
     file_formatter = MaskingFormatter(_LOG_FORMAT, api_key=api_key)
     console_formatter = MaskingFormatter(_LOG_FORMAT, api_key=api_key)

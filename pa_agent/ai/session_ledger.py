@@ -7,29 +7,22 @@ from pa_agent.ai.deepseek_client import AIUsage
 
 logger = logging.getLogger(__name__)
 
-try:
-    from PyQt6.QtCore import QObject, pyqtSignal
-    _QT_AVAILABLE = True
-except ImportError:
-    _QT_AVAILABLE = False
-    QObject = object  # type: ignore[assignment,misc]
-    pyqtSignal = None  # type: ignore[assignment]
+from PyQt6.QtCore import QObject, pyqtSignal
 
 
-class SessionTokenLedger(QObject):  # type: ignore[misc]
+class SessionTokenLedger(QObject):
     """Accumulates token usage across API calls in a session.
 
-    Signals (Qt only)
-    -----------------
+    Signals
+    -------
     threshold_crossed(str, dict)
         Emitted when context usage crosses warn_pct or 95%.
     updated(dict)
         Emitted after every add() with the current totals dict.
     """
 
-    if _QT_AVAILABLE:
-        threshold_crossed = pyqtSignal(str, dict)
-        updated = pyqtSignal(dict)
+    threshold_crossed = pyqtSignal(str, dict)
+    updated = pyqtSignal(dict)
 
     def __init__(
         self,
@@ -60,19 +53,16 @@ class SessionTokenLedger(QObject):  # type: ignore[misc]
         pct = self.context_used / self._context_window * 100.0
 
         totals = self.breakdown()
-        if _QT_AVAILABLE:
-            self.updated.emit(totals)
+        self.updated.emit(totals)
 
         if pct >= 95.0 and not self._red_fired:
             self._red_fired = True
             logger.warning("Context usage >= 95%% (%.1f%%)", pct)
-            if _QT_AVAILABLE:
-                self.threshold_crossed.emit("red", totals)
+            self.threshold_crossed.emit("red", totals)
         elif pct >= self._warn_pct and not self._yellow_fired:
             self._yellow_fired = True
             logger.warning("Context usage >= %.0f%% (%.1f%%)", self._warn_pct, pct)
-            if _QT_AVAILABLE:
-                self.threshold_crossed.emit("yellow", totals)
+            self.threshold_crossed.emit("yellow", totals)
 
     def reset(self) -> None:
         """Reset all counters (e.g. on symbol/timeframe switch)."""

@@ -13,17 +13,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-try:
-    from PyQt6.QtCore import QThread, pyqtSignal, QObject
-    _QT_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    _QT_AVAILABLE = False
-    QThread = object  # type: ignore[assignment,misc]
-    pyqtSignal = None  # type: ignore[assignment]
-    QObject = object  # type: ignore[assignment]
+from PyQt6.QtCore import QThread, pyqtSignal, QObject
 
 
-class RefreshLoop(QThread):  # type: ignore[misc]
+class RefreshLoop(QThread):
     """Fetches the latest K-line snapshot every *interval_ms* milliseconds.
 
     Signals
@@ -34,9 +27,8 @@ class RefreshLoop(QThread):  # type: ignore[misc]
         Emitted with a human-readable status string (e.g. "数据延迟").
     """
 
-    if _QT_AVAILABLE:
-        frame_ready = pyqtSignal(list)
-        status_changed = pyqtSignal(str)
+    frame_ready = pyqtSignal(list)
+    status_changed = pyqtSignal(str)
 
     def __init__(
         self,
@@ -83,8 +75,7 @@ class RefreshLoop(QThread):  # type: ignore[misc]
                     if len(bars) > 1:
                         self._buffer.append(bars[1])
 
-                if _QT_AVAILABLE:
-                    self.frame_ready.emit(bars)
+                self.frame_ready.emit(bars)
 
             except DataSourceTransientError as exc:
                 logger.warning("RefreshLoop transient error: %s", exc)
@@ -93,8 +84,7 @@ class RefreshLoop(QThread):  # type: ignore[misc]
                     failure_start = time.monotonic()
                 elapsed = time.monotonic() - failure_start
                 if elapsed >= self._failure_threshold_s:
-                    if _QT_AVAILABLE:
-                        self.status_changed.emit("数据延迟")
+                    self.status_changed.emit("数据延迟")
             except Exception as exc:  # noqa: BLE001
                 # Never let unexpected exceptions bubble out of the thread
                 logger.error("RefreshLoop unexpected error: %s", exc, exc_info=True)
