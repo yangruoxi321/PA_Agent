@@ -526,10 +526,28 @@ class JsonValidator:
 
         sig_seq = _parse_k_seq(signal_bar.get("bar"))
         entry_seq = _parse_k_seq(entry_bar.get("bar"))
-        if sig_seq is None:
+        strength = str(entry_bar.get("strength", "") or "").strip().lower()
+        freshness = str(entry_bar.get("freshness", "fresh")).strip().lower()
+        quality = str(signal_bar.get("quality", "")).strip().lower()
+        pattern = str(signal_bar.get("pattern", "") or "").strip().lower()
+        pending_entry = (
+            strength == "not_triggered"
+            or freshness == "pending"
+            or entry_bar.get("bar") is None
+        )
+        planned_without_signal = (
+            pending_entry
+            and decision.get("order_type") in ("限价单", "突破单")
+            and quality == "invalid"
+            and pattern in ("", "none", "not_triggered", "pending")
+            and signal_bar.get("bar") is None
+        )
+        if sig_seq is None and not planned_without_signal:
             errors.append("bar_analysis.signal_bar.bar must be a K{n} reference")
-        if entry_seq is None:
+        if entry_seq is None and not pending_entry:
             errors.append("bar_analysis.entry_bar.bar must be a K{n} reference")
+        if pending_entry and decision.get("order_type") == "市价单":
+            errors.append("market order requires a concrete entry_bar.bar")
         if sig_seq is not None and entry_seq is not None and sig_seq <= entry_seq:
             errors.append(
                 "signal_bar must be older than entry_bar "
@@ -540,7 +558,6 @@ class JsonValidator:
                 if seq is not None and _bar_by_seq(kline_frame, seq) is None:
                     errors.append(f"bar_analysis.{label}.bar K{seq} not found in current K-line frame")
 
-        quality = str(signal_bar.get("quality", "")).strip().lower()
         if quality in ("weak", "invalid"):
             reasons = _all_stage2_reasons(obj)
             if not any(token in reasons for token in ("弱", "瑕疵", "激进", "仍可", "例外")):
@@ -550,7 +567,6 @@ class JsonValidator:
 
         follow = entry_bar.get("follow_through")
         no_follow = follow is False or str(follow).strip().lower() in ("false", "no", "failed")
-        freshness = str(entry_bar.get("freshness", "fresh")).strip().lower()
         trade_conf = decision.get("trade_confidence")
         try:
             trade_conf_num = int(trade_conf)
@@ -558,7 +574,7 @@ class JsonValidator:
             trade_conf_num = 0
         if freshness in ("stale", "invalid"):
             errors.append("entry_bar.freshness stale/invalid cannot support a new order")
-        if no_follow and trade_conf_num >= 50:
+        if no_follow and not pending_entry and trade_conf_num >= 50:
             errors.append(
                 "entry_bar.follow_through=false/failed cannot support trade_confidence >= 50"
             )

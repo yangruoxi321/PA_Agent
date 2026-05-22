@@ -55,7 +55,7 @@ _SIGNAL_BAR: dict = {
     "type": "object",
     "required": ["bar", "quality", "reason"],
     "properties": {
-        "bar": {"type": "string"},
+        "bar": {"type": ["string", "null"]},
         "quality": {"type": "string", "enum": ["strong", "medium", "weak", "invalid"]},
         "pattern": {"type": "string"},
         "reason": {"type": "string"},
@@ -67,11 +67,11 @@ _ENTRY_BAR: dict = {
     "type": "object",
     "required": ["bar", "strength", "follow_through"],
     "properties": {
-        "bar": {"type": "string"},
+        "bar": {"type": ["string", "null"]},
         "strength": {"type": "string", "enum": ["strong", "weak", "not_triggered"]},
         "follow_through": {"type": ["boolean", "string", "null"]},
         "still_valid": {"type": ["boolean", "null"]},
-        "freshness": {"type": "string", "enum": ["fresh", "stale", "invalid"]},
+        "freshness": {"type": "string", "enum": ["fresh", "pending", "stale", "invalid"]},
     },
     "additionalProperties": True,
 }

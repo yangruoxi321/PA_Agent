@@ -236,6 +236,116 @@ def test_stage2_validator_rejects_stale_entry_bar() -> None:
     assert any("signal_chain:" in f for f in result.invalid_fields)
 
 
+def test_stage2_validator_accepts_pending_limit_entry_bar() -> None:
+    obj = _stage2_trade_obj(
+        order_type="限价单",
+        order_direction="做空",
+        entry_price=101.0,
+        take_profit_price=96.0,
+        stop_loss_price=103.0,
+        trade_confidence=65,
+        estimated_win_rate=60,
+        entry_basis_bar=None,
+        entry_basis_extreme=None,
+        entry_rule="等待价格反弹到阻力位后挂限价卖单",
+    )
+    obj["bar_analysis"]["always_in"] = "short"
+    obj["bar_analysis"]["signal_bar"]["bar"] = "K2"
+    obj["bar_analysis"]["signal_bar"]["pattern"] = "L1"
+    obj["bar_analysis"]["entry_bar"] = {
+        "bar": None,
+        "strength": "not_triggered",
+        "follow_through": False,
+        "still_valid": True,
+        "freshness": "pending",
+    }
+    result = validator.validate(
+        "stage2",
+        json.dumps(obj),
+        decision_stance="aggressive",
+        kline_frame=_frame(),
+    )
+    assert isinstance(result, Ok), f"Expected Ok, got {result}"
+
+
+def test_stage2_validator_accepts_planned_limit_without_signal_bar() -> None:
+    obj = _stage2_trade_obj(
+        order_type="限价单",
+        order_direction="做空",
+        entry_price=101.0,
+        take_profit_price=96.0,
+        stop_loss_price=103.0,
+        trade_confidence=50,
+        trade_confidence_reasoning="极度激进档接受无信号棒瑕疵",
+        estimated_win_rate=55,
+        entry_basis_bar=None,
+        entry_basis_extreme=None,
+        entry_rule=None,
+    )
+    obj["bar_analysis"]["always_in"] = "short"
+    obj["bar_analysis"]["signal_bar"] = {
+        "bar": None,
+        "quality": "invalid",
+        "pattern": "none",
+        "reason": "计划型限价单，尚无已收盘信号棒",
+    }
+    obj["bar_analysis"]["entry_bar"] = {
+        "bar": None,
+        "strength": "not_triggered",
+        "follow_through": False,
+        "still_valid": True,
+        "freshness": "pending",
+    }
+    obj["decision_trace"][0]["reason"] = "接受该瑕疵，等待信号确认"
+    result = validator.validate(
+        "stage2",
+        json.dumps(obj),
+        decision_stance="aggressive",
+        kline_frame=_frame(),
+    )
+    assert isinstance(result, Ok), f"Expected Ok, got {result}"
+
+
+def test_stage2_validator_rejects_strong_signal_without_signal_bar() -> None:
+    obj = _stage2_trade_obj()
+    obj["bar_analysis"]["signal_bar"]["bar"] = None
+    obj["bar_analysis"]["signal_bar"]["quality"] = "strong"
+    obj["bar_analysis"]["entry_bar"] = {
+        "bar": None,
+        "strength": "not_triggered",
+        "follow_through": "pending",
+        "still_valid": True,
+        "freshness": "pending",
+    }
+    result = validator.validate(
+        "stage2",
+        json.dumps(obj),
+        decision_stance="aggressive",
+        kline_frame=_frame(),
+    )
+    assert isinstance(result, ValidationError)
+    assert any("signal_bar.bar" in f for f in result.invalid_fields)
+
+
+def test_stage2_validator_rejects_pending_market_entry_bar() -> None:
+    obj = _stage2_trade_obj(order_type="市价单", entry_basis_bar=None, entry_basis_extreme=None)
+    obj["bar_analysis"]["entry_bar"] = {
+        "bar": None,
+        "strength": "not_triggered",
+        "follow_through": "pending",
+        "still_valid": True,
+        "freshness": "pending",
+    }
+    result = validator.validate(
+        "stage2",
+        json.dumps(obj),
+        decision_stance="aggressive",
+        kline_frame=_frame(),
+    )
+    assert isinstance(result, ValidationError)
+    assert any("market order requires" in f for f in result.invalid_fields)
+
+
 def test_stage2_validator_accepts_grounded_trade() -> None:
     obj = _stage2_trade_obj()
     result = validator.validate(

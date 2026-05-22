@@ -26,6 +26,9 @@ from pa_agent.config.settings import Settings, save_settings
 from pa_agent.config.paths import SETTINGS_JSON_PATH
 
 _API_KEY_HELP_URL = "https://my.feishu.cn/wiki/CUV1wUKWxiQGhekQdRvcZQQ2ncf"
+_AGENT_TUTORIAL_URL = (
+    "https://my.feishu.cn/wiki/BEdFwGJhaiATbukuD2HccSXCnrb?from=from_copylink"
+)
 
 
 class SettingsDialog(QDialog):
@@ -87,6 +90,11 @@ class SettingsDialog(QDialog):
         self._api_key_help_btn.setToolTip(_API_KEY_HELP_URL)
         self._api_key_help_btn.clicked.connect(self._open_api_key_help_url)
         provider_form.addRow("", self._api_key_help_btn)
+
+        self._agent_tutorial_btn = QPushButton("智能体使用教程及问题解决方法")
+        self._agent_tutorial_btn.setToolTip(_AGENT_TUTORIAL_URL)
+        self._agent_tutorial_btn.clicked.connect(self._open_agent_tutorial_url)
+        provider_form.addRow("", self._agent_tutorial_btn)
 
         form_layout.addWidget(provider_group)
 
@@ -279,6 +287,9 @@ class SettingsDialog(QDialog):
 
     def _open_api_key_help_url(self) -> None:
         QDesktopServices.openUrl(QUrl(_API_KEY_HELP_URL))
+
+    def _open_agent_tutorial_url(self) -> None:
+        QDesktopServices.openUrl(QUrl(_AGENT_TUTORIAL_URL))
 
     def _toggle_api_key_visibility(self, checked: bool) -> None:
         if checked:

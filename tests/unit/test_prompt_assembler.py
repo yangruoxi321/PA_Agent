@@ -55,7 +55,17 @@ def assembler(tmp_path: Path) -> PromptAssembler:
         "文件22-信号失败后的磁力位.txt",
         "上涨通道分析识别.txt",
         "上涨通道交易策略.txt",
+        "下跌通道分析识别.txt",
+        "下跌通道交易策略.txt",
+        "极速上涨分析识别.txt",
+        "极速上涨交易策略.txt",
+        "极速下跌分析识别.txt",
+        "极速下跌交易策略.txt",
+        "震荡区间分析识别.txt",
+        "震荡区间交易策略.txt",
         "文件13-窄通道与宽通道策略.txt",
+        "文件14-楔形形态分析交易.txt",
+        "文件15-二次入场机会.txt",
     ]:
         (tmp_path / fname).write_text(f"[CONTENT OF {fname}]", encoding="utf-8")
     return PromptAssembler(prompt_dir=tmp_path)
@@ -82,6 +92,11 @@ def test_stage1_system_prompt_order(assembler: PromptAssembler):
     assert "[CONTENT OF 二元决策.txt]" in system
     assert 0 <= pos_diag < pos_signal, "Stage 1 user task files are out of order"
     assert 0 <= pos_signal < pos_bar_by_bar, "Bar-by-bar checklist should follow signal file"
+    assert "文件18-突破失败与突破测试" in user
+    assert "文件19-H1H2-L1L2计数" in user
+    assert "文件20-AlwaysIn与20GB" in user
+    assert "文件21-铁丝网与无交易环境" in user
+    assert "文件22-信号失败后的磁力位" in user
 
 
 def test_stage1_user_prompt_contains_required_fields(assembler: PromptAssembler):
@@ -145,6 +160,22 @@ def test_stage2_user_prompt_contains_stage1_json(assembler: PromptAssembler):
     user = messages[1]["content"]
     assert "spike" in user
     assert "bearish" in user
+
+
+def test_stage2_user_prompt_always_includes_full_strategy_pack(
+    assembler: PromptAssembler,
+):
+    """Accuracy-first mode loads all strategy references in Stage 2."""
+    frame = _make_frame()
+    messages = assembler.build_stage2(frame, {}, [], [])
+    user = messages[1]["content"]
+    assert "上涨通道分析识别" in user
+    assert "下跌通道分析识别" in user
+    assert "极速上涨分析识别" in user
+    assert "极速下跌分析识别" in user
+    assert "震荡区间分析识别" in user
+    assert "文件18-突破失败与突破测试" in user
+    assert "文件22-信号失败后的磁力位" in user
 
 
 def test_stage1_output_reminder_present(assembler: PromptAssembler):

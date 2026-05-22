@@ -204,17 +204,17 @@ JSON 字符串内不要用英文双引号强调，改用「」或不用引号。
     "last_closed_bar": "K1",
     "bar_type": "trend_bull|trend_bear|doji|inside|outside_bull|outside_bear|other",
     "signal_bar": {
-      "bar": "K2",
+      "bar": "K2 或 null（计划型挂单尚无已收盘信号棒时为 null）",
       "quality": "strong|medium|weak|invalid",
       "pattern": "H1|H2|L1|L2|MTR|wedge|tr_boundary|breakout_pullback|none",
       "reason": "信号棒质量判断"
     },
     "entry_bar": {
-      "bar": "K1",
+      "bar": "K1 或 null（限价/突破挂单尚未触发时为 null）",
       "strength": "strong|weak|not_triggered",
       "follow_through": true,
       "still_valid": true,
-      "freshness": "fresh|stale|invalid"
+      "freshness": "fresh|pending|stale|invalid"
     },
     "second_entry": {
       "is_second_entry": true,
@@ -273,11 +273,11 @@ JSON 字符串内不要用英文双引号强调，改用「」或不用引号。
 - 限价单/市价单不使用 entry_basis_* 字段，可填 null。
 
 **§9 逐K信号链与新鲜度硬规则：**
-- §9.0–§9.7 必须引用 `bar_analysis.signal_bar.bar`、`bar_analysis.entry_bar.bar` 与阶段一 `bar_by_bar_summary` 中的对应 K 线。
+- §9.0–§9.7 必须引用 `bar_analysis.signal_bar.bar` 与阶段一 `bar_by_bar_summary` 中的对应 K 线；只有在“计划型限价/突破挂单，尚无已收盘信号棒”时，`signal_bar.bar` 才可为 null，且必须设 `quality="invalid"`、`pattern="none"`，并在 9.0 写明“等待信号确认/接受该瑕疵”。若限价单/突破单尚未触发，`bar_analysis.entry_bar.bar` 可为 null，但必须设 `strength="not_triggered"`、`freshness="pending"`，并在 9.7 写明“等待触发，尚无入场棒”。
 - 信号棒、入场棒、确认棒必须时间顺序合理：信号棒序号通常大于入场棒序号（更早），入场棒之后的跟随看更新的 K 线。
 - 如果信号棒之后已经出现 2–3 根无跟随、反向强 K、或 `entry_bar.freshness=stale|invalid`，不得继续把旧信号当作新的突破单依据。
 - 如果最新 K1 是 doji、弱入场棒、无跟随或反向确认，必须降低 trade_confidence；除非有非常明确的二次入场/突破测试证据，否则 order_type=不下单。
-- 当 `bar_analysis.signal_bar.quality=weak|invalid` 或 `entry_bar.follow_through=false` 时，若仍下单，必须在 §9 和 reasoning 中明确说明为何该弱点未使信号失效；否则应等待。
+- 当 `bar_analysis.signal_bar.quality=weak|invalid`，或已触发入场棒但 `entry_bar.follow_through=false` 时，若仍下单，必须在 §9 和 reasoning 中明确说明为何该弱点未使信号失效；否则应等待。挂单未触发时不得把 `follow_through=false` 当作失败跟随，应写 `pending`。
 
 **跳过规则：**
 - 无持仓：跳过 §12、§13（不写 trace）
@@ -328,12 +328,41 @@ STAGE1_TASK_PROMPT_TXT_FILES: tuple[str, ...] = (
     "市场诊断框架.txt",
     "文件16-K线信号识别.txt",
     "逐棒分析检查单.txt",
+    "文件13-窄通道与宽通道策略.txt",
+    "文件14-楔形形态分析交易.txt",
+    "文件15-二次入场机会.txt",
+    "文件18-突破失败与突破测试.txt",
+    "文件19-H1H2-L1L2计数.txt",
+    "文件20-AlwaysIn与20GB.txt",
+    "文件21-铁丝网与无交易环境.txt",
+    "文件22-信号失败后的磁力位.txt",
 )
 
 STAGE2_BASE_PROMPT_TXT_FILES: tuple[str, ...] = (
     "逐棒分析检查单.txt",
     "文件16-K线信号识别.txt",
     "文件17-止损和止盈与仓位管理.txt",
+)
+
+STAGE2_FULL_STRATEGY_PROMPT_TXT_FILES: tuple[str, ...] = (
+    "上涨通道分析识别.txt",
+    "上涨通道交易策略.txt",
+    "下跌通道分析识别.txt",
+    "下跌通道交易策略.txt",
+    "极速上涨分析识别.txt",
+    "极速上涨交易策略.txt",
+    "极速下跌分析识别.txt",
+    "极速下跌交易策略.txt",
+    "震荡区间分析识别.txt",
+    "震荡区间交易策略.txt",
+    "文件13-窄通道与宽通道策略.txt",
+    "文件14-楔形形态分析交易.txt",
+    "文件15-二次入场机会.txt",
+    "文件18-突破失败与突破测试.txt",
+    "文件19-H1H2-L1L2计数.txt",
+    "文件20-AlwaysIn与20GB.txt",
+    "文件21-铁丝网与无交易环境.txt",
+    "文件22-信号失败后的磁力位.txt",
 )
 
 
@@ -348,8 +377,12 @@ def stage1_prompt_txt_files() -> list[str]:
 
 def stage2_user_task_txt_files(strategy_files: list[str] | None = None) -> list[str]:
     """Return .txt filenames loaded into the Stage 2 user turn only."""
-    routed = [f for f in (strategy_files or []) if f]
-    return [*routed, *STAGE2_BASE_PROMPT_TXT_FILES]
+    files = [
+        *(f for f in (strategy_files or []) if f),
+        *STAGE2_FULL_STRATEGY_PROMPT_TXT_FILES,
+        *STAGE2_BASE_PROMPT_TXT_FILES,
+    ]
+    return list(dict.fromkeys(files))
 
 
 def stage2_prompt_txt_files(strategy_files: list[str] | None = None) -> list[str]:
