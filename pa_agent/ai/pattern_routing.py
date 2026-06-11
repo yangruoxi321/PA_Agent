@@ -1,7 +1,14 @@
 """Stage-1 pattern tags, entry_setup overlays, and stage-1 briefs for routing."""
 from __future__ import annotations
 
+import re
 from typing import Any
+
+# H1/H2/L1/L2 count setup — avoid bare「计数」(e.g. EMA缺口计数) false positives.
+_HL_COUNT_SETUP_RE = re.compile(
+    r"(?<![a-z])(?:h[12]|l[12])(?![a-z])|计数入场|high\s*[12]|low\s*[12]",
+    re.IGNORECASE,
+)
 
 # Maps bar_analysis.entry_setup_type -> detected_patterns keys to merge before routing.
 ENTRY_SETUP_TYPE_PATTERN_OVERLAY: dict[str, tuple[str, ...]] = {
@@ -24,7 +31,7 @@ _PATTERN_KEYWORD_TAGS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("铁丝网", "barbwire", "凝滞区"), "barbwire"),
     (("重叠度高", "重叠多", "k线重叠", "重叠严重"), "overlap"),
     (("区间下沿", "区间上沿", "区间边界", "交易区间", "交易区间下沿", "交易区间上沿"), "middle_range"),
-    (("h1", "h2", "l1", "l2", "计数入场"), "h1"),
+    (("h1", "h2", "l1", "l2", "计数入场", "high1", "high2", "low1", "low2"), "h1"),
     (("always in", "ail", "ais", "20gb", "缺口棒"), "always_in"),
     (("磁力", "套住", "trapped", "信号失败"), "failed_signal"),
 )
@@ -113,9 +120,9 @@ def _collect_detected_pattern_tags(stage1_json: dict[str, Any]) -> list[str]:
     text = f"{blob} {risk}"
     for keywords, tag in _PATTERN_KEYWORD_TAGS:
         if tag == "h1":
-            if any(k in text for k in ("h1", "h2", "l1", "l2", "计数")):
+            if _mentions_hl_count_setup(text):
                 for hl in ("h1", "h2", "l1", "l2"):
-                    if hl in text and hl not in seen:
+                    if re.search(rf"(?<![a-z]){hl}(?![a-z])", text) and hl not in seen:
                         seen.add(hl)
                         patterns.append(hl)
             continue
@@ -138,11 +145,77 @@ def merge_detected_patterns(stage1_json: dict[str, Any]) -> list[str]:
     return _collect_detected_pattern_tags(stage1_json)
 
 
+def _mentions_hl_count_setup(text: str) -> bool:
+    """True when narrative explicitly refers to H1/H2/L1/L2 count entry (not EMA gap count)."""
+    return bool(_HL_COUNT_SETUP_RE.search(text))
+
+
 def _entry_setup_type(stage1_json: dict[str, Any]) -> str:
     bar = stage1_json.get("bar_analysis")
     if not isinstance(bar, dict):
         return ""
     return str(bar.get("entry_setup_type") or "").strip().lower()
+
+
+_HL_WORD_RE = re.compile(r"(?i)(?:high|low)\s*([12])(?![0-9])")
+
+
+def _hl_tags_from_text(text: str) -> list[str]:
+    tags: list[str] = []
+    for m in _HL_WORD_RE.finditer(text):
+        prefix = "h" if m.group(0).lower().startswith("h") else "l"
+        tags.append(f"{prefix}{m.group(1)}")
+    for hl in ("h1", "h2", "l1", "l2"):
+        if re.search(rf"(?<![a-z]){hl}(?![a-z])", text) and hl not in tags:
+            tags.append(hl)
+    return tags
+
+
+def ensure_detected_patterns_coherent(stage1_json: dict[str, Any]) -> bool:
+    """Auto-add detected_patterns tags implied by key_signals / entry_setup_type."""
+    before = list(stage1_json.get("detected_patterns") or [])
+    sync_detected_patterns_field(stage1_json)
+    patterns: list[str] = list(stage1_json.get("detected_patterns") or [])
+    seen = {str(p).strip().lower() for p in patterns}
+
+    blob = " ".join(str(s) for s in (stage1_json.get("key_signals") or [])).lower()
+    risk = str(stage1_json.get("risk_warning") or "").lower()
+    text = f"{blob} {risk}"
+
+    changed = patterns != before
+
+    if _mentions_hl_count_setup(text) or _hl_tags_from_text(text):
+        for hl in _hl_tags_from_text(text) or _HL_PATTERN_KEYWORDS:
+            if hl not in seen:
+                seen.add(hl)
+                patterns.append(hl)
+                changed = True
+
+    for keywords, required in _PATTERN_KEYWORD_TAGS:
+        if required == "h1":
+            continue
+        if any(k.lower() in text for k in keywords) and required not in seen:
+            seen.add(required)
+            patterns.append(required)
+            changed = True
+
+    est = _entry_setup_type(stage1_json)
+    if est == "wedge" and "wedge" not in seen:
+        patterns.append("wedge")
+        changed = True
+    if est == "breakout_pullback" and "breakout_pullback" not in seen:
+        patterns.append("breakout_pullback")
+        changed = True
+    if est == "tr_boundary":
+        for required in ("middle_range", "barbwire"):
+            if required not in seen:
+                seen.add(required)
+                patterns.append(required)
+                changed = True
+
+    if changed:
+        stage1_json["detected_patterns"] = patterns
+    return changed
 
 
 def validate_detected_patterns_vs_key_signals(stage1: dict[str, Any]) -> list[str]:
@@ -155,7 +228,7 @@ def validate_detected_patterns_vs_key_signals(stage1: dict[str, Any]) -> list[st
 
     for keywords, required in _PATTERN_KEYWORD_TAGS:
         if required == "h1":
-            if any(k in text for k in ("h1", "h2", "l1", "l2", "计数")):
+            if _mentions_hl_count_setup(text):
                 if not patterns.intersection(_HL_PATTERN_KEYWORDS.keys()):
                     errors.append(
                         "key_signals mentions H1/H2/L1/L2 count setup but "

@@ -106,10 +106,16 @@ def build_retry_feedback(
         "交易结论须与 K 线分析一致，不得仅为修字段而反转方向。"
     )
 
-    if category == "d" and not (previous_raw or "").strip():
-        lines.append(
-            "⚠️ 上一轮正文 content 为空：请把 JSON 写在 content，不要只写在思考区。"
-        )
+    if category == "d":
+        if not (previous_raw or "").strip():
+            lines.append(
+                "⚠️ 上一轮正文 content 为空：请把 JSON 写在 content，不要只写在思考区。"
+            )
+        if stage == "stage2":
+            lines.append(
+                "⚠️ 禁止输出英文说明、Markdown 表格/摘要、「修改完成」「已写入文件」等对话文字；"
+                "禁止 ` ```json ` 围栏。content 必须整段为可 `json.loads` 的阶段二裸 JSON。"
+            )
 
     return "\n".join(lines)
 

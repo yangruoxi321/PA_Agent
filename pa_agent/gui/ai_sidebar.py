@@ -68,6 +68,10 @@ class AISidebar(QWidget):
         """Switch to the decision flow visualization tab."""
         self._tabs.setCurrentIndex(self.TAB_DECISION_FLOW)
 
+    def focus_decision(self) -> None:
+        """Switch to the trading decision tab."""
+        self._tabs.setCurrentIndex(self.TAB_DECISION)
+
     def focus_future_trend(self) -> None:
         """Switch to the future trend tab (未来走势预期)."""
         self._tabs.setCurrentIndex(self.TAB_FUTURE_TREND)

@@ -1841,7 +1841,27 @@ def route_order_method(
 
     candidate = _CYCLE_ORDER_METHOD.get(cycle, "不下单")
 
+    model_order_type = str(decision.get("order_type") or "").strip()
 
+    def _has_trade_prices() -> bool:
+        return all(
+            decision.get(k) is not None
+            for k in ("entry_price", "stop_loss_price", "take_profit_price")
+        )
+
+    # Preserve model's explicit limit/market choice when §10.3 already passed.
+    if (
+        model_order_type == "限价单"
+        and _trace_answer(decision_trace, "10.3") == "是"
+        and _has_trade_prices()
+    ):
+        candidate = "限价单"
+    elif (
+        model_order_type == "市价单"
+        and _trace_answer(decision_trace, "10.3") == "是"
+        and _has_trade_prices()
+    ):
+        candidate = "市价单"
 
     if candidate == "不下单":
 
@@ -1867,8 +1887,6 @@ def route_order_method(
 
         spike_stage = str((stage1_json or {}).get("spike_stage") or "").strip().lower()
 
-        model_order_type = str(decision.get("order_type") or "").strip()
-
         if spike_stage in ("ending", "pullback", "channel") and model_order_type == "突破单":
 
             has_basis = bool(
@@ -1885,7 +1903,9 @@ def route_order_method(
 
 
 
-    # Breakout order: check for valid entry_basis
+    # Breakout order: check for valid entry_basis; fall back to limit when unavailable.
+
+    breakout_fallback_to_limit = False
 
     if candidate == "突破单":
 
@@ -1897,7 +1917,9 @@ def route_order_method(
 
         if not has_basis:
 
-            # Fallback to limit order
+            # No breakout anchor → try limit at structural level (if §10.3 already passed).
+
+            breakout_fallback_to_limit = True
 
             candidate = "限价单"
 
@@ -1997,6 +2019,12 @@ def route_order_method(
                     f"cycle_position={cycle}（spike_stage={spike_stage_label}，尖峰已结束）"
                     f"→{candidate}（保留模型突破单选择；尖峰结束后等待信号棒突破确认是正确做法，"
                     "不应强制市价单立即追入）。" + reason
+                )
+            elif breakout_fallback_to_limit and candidate == "限价单":
+                reason = (
+                    f"cycle_position={cycle} 默认突破单，但无有效 entry_basis_bar/extreme；"
+                    f"§10.3 已通过 → 改用限价单在结构位挂单（回撤/反弹到位入场）。"
+                    + reason
                 )
             else:
                 reason = f"cycle_position={cycle}→{candidate}。" + reason

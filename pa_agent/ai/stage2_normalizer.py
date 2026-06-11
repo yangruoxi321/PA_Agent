@@ -14,6 +14,38 @@ from pa_agent.util.price_tick import (
 
 logger = logging.getLogger(__name__)
 
+# ── Model alias mappings (Stage 1 normalizer has the same; keep in sync) ──
+
+_SIGNAL_BAR_QUALITY_ALIASES: dict[str, str] = {
+    "low": "weak",
+    "high": "strong",
+    "moderate": "medium",
+    "poor": "weak",
+    "good": "strong",
+    "bad": "invalid",
+    # 中文 synonyms
+    "弱": "weak",
+    "中": "medium",
+    "强": "strong",
+    "无效": "invalid",
+}
+
+_ENTRY_BAR_FRESHNESS_ALIASES: dict[str, str] = {
+    "expired": "stale",
+    "old": "stale",
+    "aged": "stale",
+    "too_old": "stale",
+    # Freshness middle-grounds
+    "active": "fresh",
+    "ready": "fresh",
+    "new": "fresh",
+    "waiting": "pending",
+    # "K0_trigger" / "k0_trigger" means "awaiting entry trigger at K0" — effectively pending
+    "trigger": "pending",
+    "k0_trigger": "pending",
+}
+
+
 _TRADE_ORDER_TYPES = frozenset({"限价单", "突破单", "市价单"})
 _NO_ORDER_PRICE_FIELDS = (
     "order_direction",
@@ -152,6 +184,34 @@ def _coerce_decision_no_order(out: dict[str, Any]) -> bool:
     return True
 
 
+def _normalize_market_order_entry_bar(
+    bar_analysis: dict[str, Any],
+    decision: dict[str, Any],
+) -> bool:
+    """Market orders need a concrete entry_bar; borrow signal_bar when model left it pending."""
+    if decision.get("order_type") != "市价单":
+        return False
+    entry_bar = bar_analysis.get("entry_bar")
+    signal_bar = bar_analysis.get("signal_bar")
+    if not isinstance(entry_bar, dict) or not isinstance(signal_bar, dict):
+        return False
+    if entry_bar.get("bar") is not None:
+        return False
+    sig_bar = signal_bar.get("bar")
+    if not sig_bar:
+        return False
+    # Market order fills on the latest closed bar; signal_bar stays older (K2+).
+    entry_bar["bar"] = str(bar_analysis.get("last_closed_bar") or "K1").strip() or "K1"
+    raw_strength = str(entry_bar.get("strength") or signal_bar.get("quality") or "weak").strip().lower()
+    strength_map = {"strong": "strong", "medium": "weak", "weak": "weak", "low": "weak", "high": "strong"}
+    entry_bar["strength"] = strength_map.get(raw_strength, "weak")
+    entry_bar["freshness"] = "fresh"
+    entry_bar["follow_through"] = True
+    entry_bar["still_valid"] = entry_bar.get("still_valid", True)
+    logger.debug("market order: entry_bar.bar set from signal_bar %s", sig_bar)
+    return True
+
+
 def _normalize_signal_entry_bar_chain(bar_analysis: dict[str, Any], decision: dict[str, Any]) -> bool:
     """Signal K must be strictly older than entry K (larger seq); pending entry exempt."""
     if decision.get("order_type") not in _TRADE_ORDER_TYPES:
@@ -197,6 +257,7 @@ def _coerce_decision_when_trade_metrics_fail(
     out: dict[str, Any],
     *,
     decision_stance: str | None = None,
+    kline_frame: Any = None,
 ) -> bool:
     """After breakout entry snap, reject orders that still fail RR / trader equation."""
     decision = out.get("decision")
@@ -208,7 +269,9 @@ def _coerce_decision_when_trade_metrics_fail(
     from pa_agent.util.trade_metrics import validate_order_trade_metrics
 
     metric_errors = validate_order_trade_metrics(
-        decision, decision_stance=decision_stance
+        decision,
+        decision_stance=decision_stance,
+        kline_frame=kline_frame,
     )
     if not metric_errors:
         return False
@@ -550,7 +613,11 @@ def normalize_stage2(
             "breakout entry_price adjusted to basis extreme ± 1 tick (basis=%s)",
             decision.get("entry_basis_bar"),
         )
-    _coerce_decision_when_trade_metrics_fail(out, decision_stance=decision_stance)
+    _coerce_decision_when_trade_metrics_fail(
+        out,
+        decision_stance=decision_stance,
+        kline_frame=kline_frame,
+    )
 
     # ── DecisionNodeEngine: fill §9.1/§9.2/§9.3/§9.5/§11 ─────────────────────
     if kline_frame is not None:
@@ -583,17 +650,33 @@ def normalize_stage2(
     bar_analysis = out.get("bar_analysis")
     decision = out.get("decision")
     if isinstance(bar_analysis, dict) and isinstance(decision, dict):
+        _normalize_market_order_entry_bar(bar_analysis, decision)
         if _normalize_signal_entry_bar_chain(bar_analysis, decision):
             pass
     if isinstance(bar_analysis, dict):
         signal_bar = bar_analysis.get("signal_bar")
-        if isinstance(signal_bar, dict) and not signal_bar.get("bar"):
-            signal_bar["bar"] = None
-            signal_bar.setdefault("quality", "invalid")
-            signal_bar.setdefault("pattern", "none")
+        if isinstance(signal_bar, dict):
+            # Normalize signal_bar.quality aliases (e.g. "low" -> "weak")
+            raw_q = signal_bar.get("quality")
+            if isinstance(raw_q, str):
+                mapped = _SIGNAL_BAR_QUALITY_ALIASES.get(raw_q.strip().lower())
+                if mapped:
+                    signal_bar["quality"] = mapped
+
+            if not signal_bar.get("bar"):
+                signal_bar["bar"] = None
+                signal_bar.setdefault("quality", "invalid")
+                signal_bar.setdefault("pattern", "none")
 
         entry_bar = bar_analysis.get("entry_bar")
         if isinstance(entry_bar, dict):
+            # Normalize entry_bar.freshness aliases (e.g. "expired" -> "stale")
+            raw_f = entry_bar.get("freshness")
+            if isinstance(raw_f, str):
+                mapped = _ENTRY_BAR_FRESHNESS_ALIASES.get(raw_f.strip().lower())
+                if mapped:
+                    entry_bar["freshness"] = mapped
+
             strength = str(entry_bar.get("strength", "") or "").strip().lower()
             has_bar = bool(entry_bar.get("bar"))
             if strength == "not_triggered" or not has_bar:
@@ -601,9 +684,28 @@ def normalize_stage2(
                 # yet. Normalize common model variants before schema checks.
                 entry_bar["strength"] = "not_triggered"
                 entry_bar.setdefault("bar", None)
-                entry_bar.setdefault("freshness", "pending")
+                fresh = str(entry_bar.get("freshness") or "").strip().lower()
+                if fresh in ("stale", "invalid", "expired", ""):
+                    entry_bar["freshness"] = "pending"
+                else:
+                    entry_bar.setdefault("freshness", "pending")
                 if entry_bar.get("follow_through") in (None, "", "pending"):
                     entry_bar["follow_through"] = "pending"
+
+    # ── diagnosis_summary ────────────────────────────────────────────────
+    # Schema requires diagnosis_summary; inject minimal default if missing.
+    if not isinstance(out.get("diagnosis_summary"), dict):
+        s1 = stage1_json or {}
+        out["diagnosis_summary"] = {
+            "cycle_position": s1.get("cycle_position", "unknown"),
+            "direction": s1.get("direction", "neutral"),
+            "key_signals": [],
+        }
+        logger.debug(
+            "Injected missing diagnosis_summary from stage1 (cycle=%s, dir=%s)",
+            out["diagnosis_summary"]["cycle_position"],
+            out["diagnosis_summary"]["direction"],
+        )
 
     ensure_stage2_predictions(out, stage1_json=stage1_json)
 

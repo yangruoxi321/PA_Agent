@@ -63,7 +63,27 @@ _SIGNAL_BAR_QUALITY_ALIASES: dict[str, str] = {
     "poor": "weak",
     "good": "strong",
     "bad": "invalid",
+    # "valid" means "signal meets criteria" but is not a quality descriptor
+    "valid": "medium",
+    "invalid": "invalid",
+    # 中文 synonyms
+    "弱": "weak",
+    "中": "medium",
+    "强": "strong",
+    "无效": "invalid",
+    "有效": "medium",
 }
+
+# Model often uses "moderate" as a synonym for "medium" in transition_risk.
+_TRANSITION_RISK_ALIASES: dict[str, str] = {
+    "moderate": "medium",
+    "moderately_high": "high",
+    "moderately_low": "low",
+    "moderate_high": "high",
+    "moderate_low": "low",
+    "mid": "medium",
+}
+
 
 _CONTEXT_EFFECT_ALIASES: dict[str, str] = {
     "strengthen_bull": "strengthens_bull",
@@ -166,6 +186,18 @@ def _normalize_signal_bar_quality(out: dict[str, Any]) -> None:
     if normalized and normalized != quality:
         signal_bar["quality"] = normalized
         logger.debug("Mapped signal_bar.quality %r -> %s", quality, normalized)
+
+
+def _normalize_transition_risk(out: dict[str, Any]) -> None:
+    """Normalize transition_risk to valid enum values."""
+    risk = out.get("transition_risk")
+    if not isinstance(risk, str):
+        return
+    key = risk.strip().lower()
+    normalized = _TRANSITION_RISK_ALIASES.get(key)
+    if normalized and normalized != risk:
+        out["transition_risk"] = normalized
+        logger.debug("Mapped transition_risk %r -> %s", risk, normalized)
 
 
 def _summary_bar_seq(bar_label: object) -> int | None:
@@ -367,15 +399,16 @@ def normalize_stage1(
             out.get("strategy_files_needed")
         )
 
-    from pa_agent.ai.pattern_routing import sync_detected_patterns_field
+    from pa_agent.ai.pattern_routing import ensure_detected_patterns_coherent
 
-    sync_detected_patterns_field(out)
+    ensure_detected_patterns_coherent(out)
 
     _hoist_bar_by_bar_summary(out)
     normalize_stage1_traces(out, normalization_mode=normalization_mode)
     _normalize_bar_by_bar_roles(out)
     _normalize_bar_by_bar_context_effects(out)
     _normalize_signal_bar_quality(out)
+    _normalize_transition_risk(out)
     _pad_bar_by_bar_summary_to_minimum(out, kline_frame=kline_frame)
     _fill_incremental_delta(
         out,

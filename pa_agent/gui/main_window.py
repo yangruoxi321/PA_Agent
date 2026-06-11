@@ -92,6 +92,7 @@ class _AnalysisWorker(QThread):
     content_token = pyqtSignal(str, str)     # (stage, chunk)
     stage_prompt_ready = pyqtSignal(str, str, str)  # (stage, system, user)
     stage2_files_ready = pyqtSignal(list)  # strategy .txt filenames for stage 2
+    retry_occurred = pyqtSignal(str)  # stage ("stage1" or "stage2")
 
     def __init__(
         self,
@@ -128,6 +129,10 @@ class _AnalysisWorker(QThread):
         def on_event(event: OrchestratorEvent) -> None:
             label = _EVENT_LABELS.get(event, str(event))
             self.status_update.emit(label)
+            if event == OrchestratorEvent.Stage1Retry:
+                self.retry_occurred.emit("stage1")
+            elif event == OrchestratorEvent.Stage2Retry:
+                self.retry_occurred.emit("stage2")
 
         def on_stage1_reasoning(chunk: str) -> None:
             self.reasoning_token.emit("stage1", chunk)
@@ -2732,6 +2737,7 @@ class MainWindow(QMainWindow):
         self._worker.record_ready.connect(self._on_record_ready)
         self._worker.error_occurred.connect(self._on_analysis_error)
         self._worker.status_update.connect(self._on_status_update)
+        self._worker.retry_occurred.connect(self._on_retry_occurred)
         self._worker.finished.connect(lambda _: self._on_worker_done())
 
         panel = getattr(self, "_stream_panel", None)
@@ -2943,7 +2949,9 @@ class MainWindow(QMainWindow):
             self._bind_decision_tree(decision, self._last_stage1_diagnosis)
             order = inner.get("order_type", "—")
             self._decision_badge.setText(f"决策: {order}")
-            if getattr(self, "_demo_mode", False):
+            if self._maybe_alert_order_opportunity(inner):
+                pass
+            elif getattr(self, "_demo_mode", False):
                 self._present_decision_flow_playback(force_play=True)
 
             # ── FlowBar: mark Stage 2 done ────────────────────────────────────
@@ -3196,6 +3204,32 @@ class MainWindow(QMainWindow):
                 "validation_info": message,
             })
         self._prompt_debug_report_for_bug_fix("分析过程发生程序异常", message)
+
+    def _on_retry_occurred(self, stage: str) -> None:
+        """Handle retry event: if cancel_keep_analysis_on_retry is enabled, disable keep_analysis."""
+        settings = getattr(self._ctx, "settings", None)
+        if settings is None:
+            return
+        try:
+            cancel_on_retry = getattr(settings.general, "cancel_keep_analysis_on_retry", False)
+        except Exception:  # noqa: BLE001
+            return
+        if not cancel_on_retry:
+            return
+        keep_cb = getattr(self, "_keep_analysis_checkbox", None)
+        if keep_cb is not None and keep_cb.isChecked():
+            keep_cb.setChecked(False)
+            # Persist to settings (same as _on_keep_analysis_checkbox_changed)
+            try:
+                settings.general.keep_analysis = False
+                from pa_agent.config.settings import save_settings
+                from pa_agent.config.paths import SETTINGS_JSON_PATH
+                save_settings(settings, SETTINGS_JSON_PATH)
+                logger.info(
+                    "持续跟踪分析已因 %s 重试自动关闭", stage
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
     def _on_record_ready(self, record: Any) -> None:
         """Push the full AnalysisRecord to the conversation and debug tabs."""
@@ -3457,11 +3491,54 @@ class MainWindow(QMainWindow):
         if flow_viz is not None:
             has_path = bool(flow_viz.set_trace(**trace_kw))
         if has_path and flow_viz is not None:
+            decision_inner = stage2_full.get("decision")
+            skip_flow_viz = (
+                self._order_opportunity_alert_enabled()
+                and isinstance(decision_inner, dict)
+                and self._has_order_opportunity(decision_inner)
+            )
             # 演示模式：等 finished 回调后再切「决策树可视化」，与真实流式结束顺序一致
             if getattr(self, "_demo_mode", False):
                 pass
+            elif skip_flow_viz:
+                pass
             elif flow_viz.should_auto_play_after_load():
                 self._present_decision_flow_playback(force_play=False)
+
+    def _order_opportunity_alert_enabled(self) -> bool:
+        settings = self._ctx.settings
+        if settings is None:
+            return True
+        return bool(getattr(settings.general, "alert_on_order_opportunity", True))
+
+    @staticmethod
+    def _has_order_opportunity(decision_inner: dict) -> bool:
+        from pa_agent.gui.order_opportunity import has_order_opportunity
+
+        return has_order_opportunity(decision_inner)
+
+    def _maybe_alert_order_opportunity(self, decision_inner: dict) -> bool:
+        """Beep, popup, and focus decision tab when stage-2 proposes an order."""
+        if not self._order_opportunity_alert_enabled():
+            return False
+        if not self._has_order_opportunity(decision_inner):
+            return False
+
+        from pa_agent.gui.order_opportunity import (
+            format_order_alert_message,
+            play_order_alert_sound,
+        )
+
+        play_order_alert_sound()
+        sidebar = getattr(self, "_ai_sidebar", None)
+        if sidebar is not None:
+            sidebar.focus_decision()
+        QMessageBox.information(
+            self,
+            "下单机会",
+            format_order_alert_message(decision_inner),
+        )
+        return True
 
     def _trigger_decision_flow_playback(self) -> None:
         """Switch to flow viz tab and play path (settings button or auto)."""

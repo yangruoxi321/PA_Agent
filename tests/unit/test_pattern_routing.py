@@ -106,6 +106,23 @@ def test_tr_boundary_syncs_middle_range_and_barbwire() -> None:
     assert "文件21-铁丝网与无交易环境.txt" in files
 
 
+def test_ema_gap_count_does_not_trigger_hl_count_setup() -> None:
+    """「EMA缺口计数」must not be mistaken for H1/H2/L1/L2 count entry."""
+    s1 = {
+        "key_signals": [
+            "连续19根K线收盘在EMA下方（EMA缺口计数19），接近20GB极端状态",
+        ],
+        "detected_patterns": ["reversal_attempt"],
+        "risk_warning": "",
+        "bar_analysis": {"entry_setup_type": "none"},
+    }
+    errs = validate_detected_patterns_vs_key_signals(s1)
+    assert not any("h1/h2/l1/l2" in e for e in errs)
+    merged = merge_detected_patterns(s1)
+    assert "reversal_attempt" in merged
+    assert not {"h1", "h2", "l1", "l2"}.intersection(merged)
+
+
 def test_entry_setup_wedge_requires_detected_patterns_tag() -> None:
     s1 = {
         "key_signals": [],

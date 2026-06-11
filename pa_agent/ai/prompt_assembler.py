@@ -84,12 +84,34 @@ _STAGE1_TAIL_REMINDER = (
     "但 gate_trace 与 gate_result 必须写在 JSON 末尾且不可省略。"
 ).strip()
 
+_INCREMENTAL_OUTPUT_HARD_RULES = """
+## 增量输出格式（硬约束，违反则程序自动重试）
+
+本次是**程序自动分析**，不是人机聊天。assistant 正文 `content` **只能**是完整阶段一裸 JSON（以 `{` 开头、以 `}` 结尾）。
+
+**禁止**在 `content` 里输出：
+- Markdown 标题（`##`）、表格、项目符号摘要、emoji
+- 「诊断已更新完毕」「如需进入阶段二」「随时告诉我」等对话用语
+- 「诊断更新摘要」「主要更新字段」类 executive summary（变化说明应写在 JSON 的 `incremental_delta.summary`、`risk_warning`、`gate_trace` 等字段内）
+- ` ```json ` 代码围栏或任何 markdown 围栏
+
+**必须**：输出与全量阶段一相同 schema 的**完整** JSON（含 `incremental_delta`），不是差异补丁或文字版变更说明。
+""".strip()
+
 _STAGE2_TAIL_REMINDER = (
     "【最后一步·必做】思考结束后，立即在 assistant 正文 `content` 输出完整阶段二裸 JSON"
     "（含 decision、decision_trace、terminal）。思考用简体中文并尽量简洁；`content` 不得为空。"
     "若 token 紧张，优先保证 `content` 有 JSON，可缩短思考。\n"
     "⚠️ 禁止在 content 中只写思考过程或分隔符（如 ---输出JSON---）而不附 JSON——"
-    "这会导致校验直接失败。哪怕只输出最小骨架 {\"decision\":{\"order_type\":\"不下单\",...}} 也比没有强。"
+    "这会导致校验直接失败。哪怕只输出最小骨架 {\"decision\":{\"order_type\":\"不下单\",...}} 也比没有强。\n\n"
+    "【⚠️ 输出前自检 — terminal.outcome 语义规则（在输出 JSON 前逐项确认）：】\n"
+    "1. §9.0 和 §10.1 是否都是「否/等待/不适用」？→ 如果是，你根本没有入场方案，\n"
+    "   terminal.outcome **只能是 wait**，terminal.node_id 填最早否定节点（如 \"9.0\"）。\n"
+    "   禁止写 reject — 你没有东西可以拒绝。\n"
+    "2. 你有入场方案（entry/stop/target 三价齐全），但 10.3 交易者方程不通过？\n"
+    "   → 这才可以写 terminal.outcome=reject，node_id=\"10.3\"。\n"
+    "3. 你有入场方案且 10.3 通过？→ terminal.outcome=trade，node_id 为最终节点。\n"
+    "常见错误速查：§9.0=否 + §10.1=否 → outcome=wait（不是 reject！）"
 ).strip()
 
 # ── Hardcoded output format reminders ─────────────────────────────────────────
@@ -378,11 +400,31 @@ JSON 字符串内不要用英文双引号强调，改用「」或不用引号。
 - `decision_trace[10.3].reason` 中的入场/止损/目标数字必须与 `decision` 三价一致（勿用未写入 decision 的中间价）
 - 做多：风险点数 = entry − stop，回报点数 = take_profit − entry；做空：风险 = stop − entry，回报 = entry − take_profit
 - 盈亏比 = 回报 ÷ 风险（程序与界面只认此公式；reasoning 中写的 RR 必须与三价一致，否则校验失败）
-- 有下单时：盈亏比不得低于当前交易倾向的底线（保守≥1.5，均衡≥1.2，激进/极度激进≥1.0），且须满足 **胜率%×回报 > (100−胜率)%×风险**
+- **盈亏比上限（硬规则）**：有下单时盈亏比 **不得高于 1.5:1**（回报÷风险 ≤ 1.5）。目标位过远会压低可实现胜率，程序会拒单。优先选**最近、有结构支撑**的止盈位，而非追求 2R/3R 远目标。
+- 有下单时：盈亏比须在 **[当前交易倾向底线, 1.5]** 区间内（保守 1.5–1.5，均衡 1.2–1.5，激进/极度激进 1.0–1.5），且须满足 **胜率%×回报 > (100−胜率)%×风险**（数学期望为正）
 - 不满足上述任一条 → **10.3 必须判「否」**，order_type=**不下单**，不得输出限价/突破/市价单
 - **10.3 通过之前**不得输出具体下单类型；**10.3 之后**才写 §11
 - 因方程不通过而放弃：terminal.node_id 应为 **10.3**，outcome=reject 或 wait
 - 完成 10.3 后，必须把你在方程中使用的**胜率主观估计**写入 decision.estimated_win_rate（0–100 整数），并在 estimated_win_rate_reasoning 简要说明依据；**禁止**留空或仅从 trace 文字里暗示
+
+**突破单不可用时的限价单备选路径（重要）：**
+- 当通道/趋势结构默认倾向突破单，但**当前没有合格突破入场**（信号棒失效、无跟随、极点不清晰、无法填写 entry_basis_bar/extreme、突破已错过等）时，**不要直接输出「不下单」**。
+- 若结构方向仍清晰，且能在**支撑/阻力/通道边界/EMA/前棒极点**附近设定限价 entry、明确止损与**≤1.5R** 的止盈，且 **10.3 交易者方程可通过（数学期望为正）** → **应尝试 `order_type=限价单`**。
+- 限价备选典型场景：顺势回撤到结构位做多/做空、区间边界反弹/回落、宽通道靠边界挂单、突破测试失败后的反向结构位。
+- 限价单 `entry_basis_*` 可填 null；`signal_bar.bar` 可为 null（quality=invalid），须在 9.0 说明「计划型限价，等待回撤/反弹到位」；`entry_bar` 设 not_triggered/pending。
+- 仅当**突破与限价两种路径均无法**给出满足 §10.1–10.3 的三价方案时，才 `order_type=不下单`。
+
+**限价单 K1 新鲜度硬规则（程序会按 K 线表数值校验，违反则强制不下单）：**
+- 限价单表示**尚未成交**的挂单；必须用 **K1（最新已收盘棒）** 的 high/low/close 与三价对照，禁止用更早 K 线或「记忆中」的旧价位。
+- **做空限价单**（等待反弹到 entry 卖出，tp < entry < stop）：
+  - K1.high **必须低于** entry_price（尚未触达挂单价）；若 K1.high ≥ entry → 挂单已失效，改 `不下单` 或在 watch_points 写更高 re-entry，**禁止**原样输出。
+  - K1.close **不得高于** entry_price（收盘已在挂单价之上 = 卖单挂在市场价下方，无效）。
+  - K1.high **不得触及** stop_loss_price；若 K1.high ≥ stop → 方案无效，必须 `不下单`。
+- **做多限价单**（等待回撤到 entry 买入，stop < entry < tp）：
+  - K1.low **必须高于** entry_price；若 K1.low ≤ entry → 挂单已失效。
+  - K1.close **不得低于** entry_price。
+  - K1.low **不得触及** stop_loss_price。
+- 若 K1 已穿过 entry/stop，不得用「等下一根回撤」糊弄——应 `order_type=不下单`，terminal=wait，在 watch_points 写明重新定价条件。
 
 **突破单 entry_price 硬规则（程序会按 K 线表小数位推断最小跳动并校验）：**
 - order_type="突破单" 时，必须填写 decision.entry_basis_bar、decision.entry_basis_extreme、decision.entry_rule。
@@ -847,6 +889,29 @@ class PromptAssembler:
             {"role": "user", "content": user_content},
         ]
 
+    @staticmethod
+    def _normalize_prev_stage1_assistant_for_incremental(
+        previous_record: AnalysisRecord,
+        raw_content: str,
+    ) -> str:
+        """Use validated diagnosis JSON in incremental context, not prose/markdown replies."""
+        from pa_agent.ai.json_validator import format_model_json_for_context
+
+        diag = getattr(previous_record, "stage1_diagnosis", None) or {}
+        if isinstance(diag, dict) and diag:
+            return json.dumps(diag, ensure_ascii=False, indent=2)
+
+        formatted = format_model_json_for_context(raw_content)
+        if formatted:
+            return formatted
+
+        logger.warning(
+            "incremental stage1: could not normalize previous assistant to JSON; "
+            "using raw stage1_response content (%d chars)",
+            len(raw_content or ""),
+        )
+        return raw_content
+
     def build_incremental_stage1(
         self,
         frame: KlineFrame,
@@ -891,7 +956,10 @@ class PromptAssembler:
                 f"roles={[m.get('role') for m in prev_s1_messages]}. "
                 f"record.meta: {getattr(previous_record, 'meta', '<missing>')!r}"
             )
-        if not prev_assistant_content:
+        prev_diag = getattr(previous_record, "stage1_diagnosis", None) or {}
+        if not prev_assistant_content and not (
+            isinstance(prev_diag, dict) and prev_diag
+        ):
             raise ValueError(
                 f"build_incremental_stage1: previous_record.stage1_response "
                 f"has no 'content' field. "
@@ -899,6 +967,11 @@ class PromptAssembler:
                 f"keys={list(prev_s1_response.keys()) if isinstance(prev_s1_response, dict) else 'N/A'}. "
                 f"record.meta: {getattr(previous_record, 'meta', '<missing>')!r}"
             )
+
+        prev_assistant_content = self._normalize_prev_stage1_assistant_for_incremental(
+            previous_record,
+            prev_assistant_content,
+        )
 
         system_content = self._build_stage1_system_prompt()
         incremental_user_content = self._build_incremental_stage1_continuation_user_prompt(
@@ -1104,6 +1177,7 @@ class PromptAssembler:
             "- 并在 summary / risk_warning / gate_trace 中说明相对上一轮变化。\n"
             "- gate_result=proceed 时 gate_trace 仍须覆盖 §1.2、§1.3、§2.1、§2.2、§2.5（§1.1/§2.3/§2.4 由程序填充）。\n"
             "- 输出仍必须是完整阶段一 JSON，而不是差异补丁。\n\n"
+            f"{_INCREMENTAL_OUTPUT_HARD_RULES}\n\n"
             f"{stage1_context}\n\n"
             "---\n\n"
             f"## 当前分析目标\n\n"
@@ -1178,6 +1252,7 @@ class PromptAssembler:
             "- 并在 summary / risk_warning / gate_trace 中说明相对上一轮变化。\n"
             "- gate_result=proceed 时 gate_trace 仍须覆盖 §1.2、§1.3、§2.1、§2.2、§2.5（§1.1/§2.3/§2.4 由程序填充）。\n"
             "- 输出仍必须是完整阶段一 JSON，而不是差异补丁。\n\n"
+            f"{_INCREMENTAL_OUTPUT_HARD_RULES}\n\n"
             f"## 当前分析目标更新\n\n"
             f"品种:{frame.symbol} 周期:{frame.timeframe} K线数量:{n_bars} 新增已收盘K线:{new_count}\n"
             f"（K线序号已重新编号：1=最新已收盘，最大 K{n_bars}；"

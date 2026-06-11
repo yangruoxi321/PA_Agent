@@ -1,0 +1,485 @@
+﻿[proxy-bootstrap] no proxy env detected, globalAgent unchanged
+[proxy-bootstrap] undici global dispatcher set to EnvHttpProxyAgent
+[proxy-bootstrap] no proxy env detected, globalAgent unchanged
+[proxy-bootstrap] undici global dispatcher set to EnvHttpProxyAgent
+node : Config (C:\Users\Administrator\.qclaw\openclaw.json): missing env var "QCLAW_LLM_BASE_URL" at models.providers.q
+claw.baseUrl - feature using this value will be unavailable
+所在位置 C:\Users\Administrator\AppData\Local\Temp\2\ps-script-0974c668-8b1b-47a0-a841-1f6093ad9a1a.ps1:80 字符: 282
++ ... nclaw.mjs"; node $oc gateway call tools.catalog --token $token --json ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Config (C:\User... be unavailable:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Config (C:\Users\Administrator\.qclaw\openclaw.json): missing env var "QCLAW_LLM_API_KEY" at models.providers.qclaw.api
+Key - feature using this value will be unavailable
+Config (C:\Users\Administrator\.qclaw\openclaw.json): missing env var "QCLAW_WECHAT_WS_URL" at channels.wechat-access.w
+sUrl - feature using this value will be unavailable
+{
+  "agentId": "main",
+  "profiles": [
+    {
+      "id": "minimal",
+      "label": "Minimal"
+    },
+    {
+      "id": "coding",
+      "label": "Coding"
+    },
+    {
+      "id": "messaging",
+      "label": "Messaging"
+    },
+    {
+      "id": "full",
+      "label": "Full"
+    }
+  ],
+  "groups": [
+    {
+      "id": "fs",
+      "label": "Files",
+      "source": "core",
+      "tools": [
+        {
+          "id": "read",
+          "label": "read",
+          "description": "Read file contents",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "write",
+          "label": "write",
+          "description": "Create or overwrite files",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "edit",
+          "label": "edit",
+          "description": "Make precise edits",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "apply_patch",
+          "label": "apply_patch",
+          "description": "Patch files",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "runtime",
+      "label": "Runtime",
+      "source": "core",
+      "tools": [
+        {
+          "id": "exec",
+          "label": "exec",
+          "description": "Run shell commands that start now.",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "process",
+          "label": "process",
+          "description": "Inspect and control running exec sessions.",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "code_execution",
+          "label": "code_execution",
+          "description": "Run sandboxed remote analysis",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "web",
+      "label": "Web",
+      "source": "core",
+      "tools": [
+        {
+          "id": "web_search",
+          "label": "web_search",
+          "description": "Search the web",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "web_fetch",
+          "label": "web_fetch",
+          "description": "Fetch web content",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "x_search",
+          "label": "x_search",
+          "description": "Search X posts",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "memory",
+      "label": "Memory",
+      "source": "core",
+      "tools": [
+        {
+          "id": "memory_search",
+          "label": "memory_search",
+          "description": "Semantic search",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "memory_get",
+          "label": "memory_get",
+          "description": "Read memory files",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sessions",
+      "label": "Sessions",
+      "source": "core",
+      "tools": [
+        {
+          "id": "sessions_list",
+          "label": "sessions_list",
+          "description": "List visible sessions and optional recent messages.",
+          "source": "core",
+          "defaultProfiles": [
+            "coding",
+            "messaging"
+          ]
+        },
+        {
+          "id": "sessions_history",
+          "label": "sessions_history",
+          "description": "Read sanitized message history for a visible session.",
+          "source": "core",
+          "defaultProfiles": [
+            "coding",
+            "messaging"
+          ]
+        },
+        {
+          "id": "sessions_send",
+          "label": "sessions_send",
+          "description": "Send a message to another visible session.",
+          "source": "core",
+          "defaultProfiles": [
+            "coding",
+            "messaging"
+          ]
+        },
+        {
+          "id": "sessions_spawn",
+          "label": "sessions_spawn",
+          "description": "Spawn sub-agent or ACP sessions.",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "sessions_yield",
+          "label": "sessions_yield",
+          "description": "End turn to receive sub-agent results",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "subagents",
+          "label": "subagents",
+          "description": "Manage sub-agents",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "session_status",
+          "label": "session_status",
+          "description": "Show session status, usage, and model state.",
+          "source": "core",
+          "defaultProfiles": [
+            "minimal",
+            "coding",
+            "messaging"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ui",
+      "label": "UI",
+      "source": "core",
+      "tools": [
+        {
+          "id": "browser",
+          "label": "browser",
+          "description": "Control web browser",
+          "source": "core",
+          "defaultProfiles": []
+        },
+        {
+          "id": "canvas",
+          "label": "canvas",
+          "description": "Control canvases",
+          "source": "core",
+          "defaultProfiles": []
+        }
+      ]
+    },
+    {
+      "id": "messaging",
+      "label": "Messaging",
+      "source": "core",
+      "tools": [
+        {
+          "id": "message",
+          "label": "message",
+          "description": "Send messages",
+          "source": "core",
+          "defaultProfiles": [
+            "messaging"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "automation",
+      "label": "Automation",
+      "source": "core",
+      "tools": [
+        {
+          "id": "cron",
+          "label": "cron",
+          "description": "Schedule cron jobs, reminders, and wake events.",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "gateway",
+          "label": "gateway",
+          "description": "Gateway control",
+          "source": "core",
+          "defaultProfiles": []
+        }
+      ]
+    },
+    {
+      "id": "nodes",
+      "label": "Nodes",
+      "source": "core",
+      "tools": [
+        {
+          "id": "nodes",
+          "label": "nodes",
+          "description": "Nodes + devices",
+          "source": "core",
+          "defaultProfiles": []
+        }
+      ]
+    },
+    {
+      "id": "agents",
+      "label": "Agents",
+      "source": "core",
+      "tools": [
+        {
+          "id": "agents_list",
+          "label": "agents_list",
+          "description": "List agents",
+          "source": "core",
+          "defaultProfiles": []
+        },
+        {
+          "id": "update_plan",
+          "label": "update_plan",
+          "description": "Track a short structured work plan.",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "media",
+      "label": "Media",
+      "source": "core",
+      "tools": [
+        {
+          "id": "image",
+          "label": "image",
+          "description": "Image understanding",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "image_generate",
+          "label": "image_generate",
+          "description": "Image generation",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "music_generate",
+          "label": "music_generate",
+          "description": "Music generation",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "video_generate",
+          "label": "video_generate",
+          "description": "Video generation",
+          "source": "core",
+          "defaultProfiles": [
+            "coding"
+          ]
+        },
+        {
+          "id": "tts",
+          "label": "tts",
+          "description": "Text-to-speech conversion",
+          "source": "core",
+          "defaultProfiles": []
+        }
+      ]
+    },
+    {
+      "id": "plugin:lossless-claw",
+      "label": "lossless-claw",
+      "source": "plugin",
+      "pluginId": "lossless-claw",
+      "tools": [
+        {
+          "id": "lcm_describe",
+          "label": "LCM Describe",
+          "description": "Look up metadata and content for an LCM item by ID. Use this to inspect summaries (sum_xxx) or stored files...",
+          "source": "plugin",
+          "pluginId": "lossless-claw",
+          "optional": false,
+          "defaultProfiles": []
+        },
+        {
+          "id": "lcm_expand",
+          "label": "LCM Expand",
+          "description": "Expand compacted conversation summaries from LCM (Lossless Context Management). Traverses the summary DAG to...",
+          "source": "plugin",
+          "pluginId": "lossless-claw",
+          "optional": false,
+          "defaultProfiles": []
+        },
+        {
+          "id": "lcm_expand_query",
+          "label": "LCM Expand Query",
+          "description": "Answer a focused natural-language question using delegated LCM expansion. Find candidate summaries (by IDs or a...",
+          "source": "plugin",
+          "pluginId": "lossless-claw",
+          "optional": false,
+          "defaultProfiles": []
+        },
+        {
+          "id": "lcm_grep",
+          "label": "LCM Grep",
+          "description": "Search compacted conversation history using regex or full-text search. Searches across messages and/or summaries...",
+          "source": "plugin",
+          "pluginId": "lossless-claw",
+          "optional": false,
+          "defaultProfiles": []
+        }
+      ]
+    },
+    {
+      "id": "plugin:qclaw-plugin",
+      "label": "qclaw-plugin",
+      "source": "plugin",
+      "pluginId": "qclaw-plugin",
+      "tools": [
+        {
+          "id": "qclaw_read_ima_content",
+          "label": "IMA 鐭ヨ瘑搴撴枃浠跺唴瀹硅鍙?,
+          "description": "璇诲彇 IMA 鐭ヨ瘑搴撲腑鐨勬枃浠舵鏂囧唴瀹广€?,
+          "source": "plugin",
+          "pluginId": "qclaw-plugin",
+          "optional": false,
+          "defaultProfiles": []
+        },
+        {
+          "id": "qclaw_tdoc_mcp_call",
+          "label": "鑵捐鏂囨。 MCP 鐩磋繛璋冪敤",
+          "description": "灏嗗唴瀹逛繚瀛?鍐欏叆鍒拌吘璁枃妗ｃ€傜敤鎴疯姹俓"淇濆瓨鍒拌吘璁枃妗"銆乗"鍒涘缓鑵捐鏂囨。\"銆乗"鍐欏叆鑵捐鏂囨。\"鏃朵娇鐢ㄣ€?,
+          "source": "plugin",
+          "pluginId": "qclaw-plugin",
+          "optional": false,
+          "defaultProfiles": []
+        },
+        {
+          "id": "qclaw_tdoc_mcp_list",
+          "label": "鑵捐鏂囨。 MCP 鍒涘缓/鍐欏叆宸ュ叿鍒楄〃",
+          "description": "鏌ヨ鑵捐鏂囨。 MCP 鍙敤鐨勫垱寤?鍐欏叆宸ュ叿鍙婂弬鏁般€傚綋 qclaw_tdoc_mcp_call 鐨?description 涓湭瑕嗙洊浣犻渶瑕佺殑宸ュ叿鏃跺彲璋冪敤姝ゅ伐鍏锋煡璇€?,
+          "source": "plugin",
+          "pluginId": "qclaw-plugin",
+          "optional": false,
+          "defaultProfiles": []
+        },
+        {
+          "id": "skillhub_install",
+          "label": "SkillHub 鎶€鑳藉畨瑁呭櫒",
+          "description": "涓€閿畨瑁?SkillHub CLI 鍜?Skills锛堟妧鑳藉寘锛夈€?,
+          "source": "plugin",
+          "pluginId": "qclaw-plugin",
+          "optional": false,
+          "defaultProfiles": []
+        }
+      ]
+    }
+  ]
+}

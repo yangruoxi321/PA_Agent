@@ -436,13 +436,14 @@ class TwoStageOrchestrator:
                 on_stage1_content(chunk)
 
         try:
-            reply_s1 = self._client.stream_chat(
+            reply_s1 = self._stream_chat_resilient(
                 messages_s1,
                 on_reasoning_token=_on_s1_reasoning,
                 on_content_token=_on_s1_content,
                 cancel_token=cancel_token,
                 thinking=_thinking,
                 reasoning_effort=_effort,
+                stage_label="Stage 1",
             )
         except Exception as exc:
             if self._is_network_error(exc):
@@ -707,13 +708,14 @@ class TwoStageOrchestrator:
                 on_stage2_content(chunk)
 
         try:
-            reply_s2 = self._client.stream_chat(
+            reply_s2 = self._stream_chat_resilient(
                 messages_s2,
                 on_reasoning_token=_on_s2_reasoning,
                 on_content_token=_on_s2_content,
                 cancel_token=cancel_token,
                 thinking=_thinking,
                 reasoning_effort=_effort,
+                stage_label="Stage 2",
             )
         except Exception as exc:
             if self._is_network_error(exc):
@@ -932,6 +934,81 @@ class TwoStageOrchestrator:
             return True, "max"
         p = self._settings.provider
         return p.thinking, p.reasoning_effort
+
+    def _stream_chat_resilient(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        on_reasoning_token: Callable[[str], None] | None,
+        on_content_token: Callable[[str], None] | None,
+        cancel_token: CancelToken,
+        thinking: bool,
+        reasoning_effort: str,
+        stage_label: str,
+    ) -> Any:
+        """Call stream_chat; on connection error, switch to QClaw and retry once."""
+        original_model = (
+            self._settings.provider.model if self._settings is not None else ""
+        )
+        tried_qclaw = False
+        while True:
+            try:
+                return self._client.stream_chat(
+                    messages,
+                    on_reasoning_token=on_reasoning_token,
+                    on_content_token=on_content_token,
+                    cancel_token=cancel_token,
+                    thinking=thinking,
+                    reasoning_effort=reasoning_effort,
+                )
+            except Exception as exc:
+                if not self._is_network_error(exc):
+                    raise
+                if tried_qclaw or not self._try_qclaw_fallback(
+                    original_model=original_model
+                ):
+                    raise
+                tried_qclaw = True
+                logger.info(
+                    "%s network error (%s); applied QClaw provider — retrying",
+                    stage_label,
+                    exc,
+                )
+
+    def _try_qclaw_fallback(self, *, original_model: str = "") -> bool:
+        """Apply local QClaw provider (like settings Save with model=openclaw)."""
+        from pa_agent.ai.qclaw_connector import (
+            apply_qclaw_provider_to_settings,
+            is_openclaw_model,
+        )
+        from pa_agent.config.paths import SETTINGS_JSON_PATH
+
+        if not is_openclaw_model(original_model):
+            return False
+        if self._settings is None:
+            return False
+
+        from pa_agent.config.settings import save_settings
+        from pa_agent.util.logging import update_api_key
+
+        err = apply_qclaw_provider_to_settings(self._settings)
+        if err:
+            logger.warning("QClaw auto-fallback unavailable: %s", err)
+            return False
+
+        self._client.update_provider(self._settings.provider)
+        try:
+            save_settings(self._settings, SETTINGS_JSON_PATH)
+            update_api_key(self._settings.provider.api_key)
+        except Exception as save_exc:  # noqa: BLE001
+            logger.warning("QClaw fallback applied but settings save failed: %s", save_exc)
+
+        logger.info(
+            "QClaw auto-fallback: model=%s base_url=%s",
+            self._settings.provider.model,
+            self._settings.provider.base_url,
+        )
+        return True
 
     @staticmethod
     def _is_network_error(exc: Exception) -> bool:

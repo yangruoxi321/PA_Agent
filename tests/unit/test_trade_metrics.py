@@ -6,6 +6,8 @@ from pa_agent.util.trade_metrics import (
     format_estimated_win_rate,
     format_estimated_win_rate_reasoning,
     is_long_direction,
+    max_risk_reward_ratio,
+    min_risk_reward_ratio,
 )
 
 
@@ -19,6 +21,10 @@ def test_compute_risk_reward_short():
     assert rr is not None
     assert rr["risk"] == 12
     assert rr["reward"] == 31
+
+
+def test_rr_bounds_default_stance() -> None:
+    assert min_risk_reward_ratio("conservative") == max_risk_reward_ratio()
 
 
 def test_format_estimated_win_rate_from_model_field():

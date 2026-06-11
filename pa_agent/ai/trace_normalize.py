@@ -492,8 +492,14 @@ def normalize_trace_item(
     _ensure_trace_string_fields(item)
     lenient = normalization_mode == "lenient"
     nid = str(item.get("node_id", "")).strip()
+    # Strip decorative prefixes like "§" that the model sometimes adds
+    nid = nid.lstrip("§")
+    if nid != str(item.get("node_id", "")).strip():
+        item["node_id"] = nid
+
     if nid == "14":
         item["node_id"] = "14.1"
+        nid = "14.1"
 
     nid = str(item.get("node_id", ""))
 
@@ -502,12 +508,11 @@ def normalize_trace_item(
         resolved = _resolve_trace_answer(nid, ans)
         if resolved is not None:
             new_ans, branch = resolved
-            # In strict mode, only apply node-specific deterministic aliases
-            # (e.g. "路径B" → "是" for node 3.5). Generic fuzzy synonyms
-            # (e.g. "部分" → "中性") are gated by lenient mode because they
-            # involve interpretive judgement.
+            # Safe enum synonyms (待定→等待、通过→是) and node-specific maps always apply.
+            # Fuzzy partial answers (部分→中性) only in lenient mode.
             node_specific = bool(_NODE_ANSWER_BY_ID.get(nid))
-            if lenient or node_specific:
+            generic_hit = ans in _GENERIC_ANSWER or ans.lower() in _GENERIC_ANSWER
+            if generic_hit or node_specific or lenient:
                 if new_ans != ans:
                     logger.debug(
                         "trace answer %r -> %r (node %s branch=%s)",

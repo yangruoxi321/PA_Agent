@@ -34,7 +34,7 @@ def validate_with_retry(
     call_api: Callable[[list[dict[str, Any]]], Any],
 ) -> ValidationRetryResult:
     """Validate *reply*; on retryable failure append feedback and re-call API."""
-    max_attempts = int(getattr(validation_settings, "retry_max", 2) or 0)
+    max_attempts = int(getattr(validation_settings, "retry_max", 3) or 0)
     if not getattr(validation_settings, "retry_enabled", True):
         max_attempts = 0
     if stage == "stage2" and not getattr(validation_settings, "retry_stage2", True):

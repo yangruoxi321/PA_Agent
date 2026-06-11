@@ -36,7 +36,7 @@ def max_retries_for_category(category: str, settings: Any) -> int:
     """Return allowed retry count for a validation category."""
     if not getattr(settings, "retry_enabled", True):
         return 0
-    base = int(getattr(settings, "retry_max", 2) or 0)
+    base = int(getattr(settings, "retry_max", 3) or 0)
     if category in ("a", "b", "d"):
         return base
     if category == "c":

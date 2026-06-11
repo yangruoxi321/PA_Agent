@@ -187,6 +187,18 @@ def test_plain_text_is_category_d():
     assert result.category == "d"
 
 
+def test_stage2_plain_text_is_category_d_not_stub():
+    """Stage 2 prose must fail as category d (no auto 不下单 stub)."""
+    prose = (
+        "修正完成。以下是所有问题的修改汇总：\n\n"
+        "| 问题 | 错误值 | 修正值 |\n"
+        "如需进入阶段二决策，随时告诉我。"
+    )
+    result = validator.validate("stage2", prose)
+    assert isinstance(result, ValidationError)
+    assert result.category == "d"
+
+
 def test_no_order_with_non_null_price_is_category_c():
     """不下单 with non-null entry_price is classified as category c.
 

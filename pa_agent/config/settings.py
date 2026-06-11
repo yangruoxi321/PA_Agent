@@ -38,14 +38,18 @@ class ValidationSettings(BaseModel):
     """Post-LLM validation behaviour."""
     model_config = ConfigDict(extra="ignore")
 
-    normalization_mode: NormalizationMode = "strict"
-    trace_semantic_checks: bool = True
-    strict_bar_by_bar_features: bool = True
-    #: Do not inject stub gate_trace on truncated Stage 1 JSON.
-    disable_truncation_repair: bool = True
+    normalization_mode: NormalizationMode = "lenient"
+    #: Stage-1 cross-field checks (gate trace, bar_by_bar, pattern tags). Off by default.
+    stage1_coherence_checks: bool = False
+    #: Stage-2 trace / diagnosis cross-checks (not order safety). Off by default.
+    stage2_coherence_checks: bool = False
+    trace_semantic_checks: bool = False
+    strict_bar_by_bar_features: bool = False
+    #: Allow Stage 1 truncated JSON tail repair before failing syntax validation.
+    disable_truncation_repair: bool = False
     #: Re-call API with structured feedback when validation fails (format errors).
     retry_enabled: bool = True
-    retry_max: int = Field(default=2, ge=0, le=5)
+    retry_max: int = Field(default=3, ge=0, le=5)
     #: Max retries for category=c semantic errors (subset only).
     retry_max_semantic: int = Field(default=1, ge=0, le=3)
     retry_stage2: bool = True
@@ -65,6 +69,8 @@ class GeneralSettings(BaseModel):
     last_timeframe: str = "15m"
     decision_flow_auto_play: bool = True
     decision_flow_play_seconds: int = 50
+    #: 阶段二给出限价/突破/市价单时：警报音、弹窗，并自动切到「决策」页（跳过决策树可视化演示）
+    alert_on_order_opportunity: bool = True
     incremental_max_new_bars: int = Field(default=10, ge=0, le=500)
     #: 阶段二交易倾向：balanced=默认；conservative/aggressive 逐级调整下单意愿
     decision_stance: DecisionStance = "balanced"
@@ -78,6 +84,8 @@ class GeneralSettings(BaseModel):
     auto_resume_chart_after_analysis: bool = False
     #: 持续跟踪分析：有新K线收盘时自动触发新一轮分析
     keep_analysis: bool = False
+    #: 重试后取消持续跟踪分析：校验失败触发重试后自动关闭 keep_analysis
+    cancel_keep_analysis_on_retry: bool = False
 
     @field_validator("last_data_source", mode="before")
     @classmethod

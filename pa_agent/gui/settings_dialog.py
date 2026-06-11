@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -20,10 +21,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QDesktopServices, QFont
 
 from pa_agent.config.settings import Settings, save_settings
 from pa_agent.config.paths import SETTINGS_JSON_PATH
+from pa_agent.ai.qclaw_connector import detect_qclaw, is_openclaw_model
 
 _API_KEY_HELP_URL = "https://my.feishu.cn/wiki/CUV1wUKWxiQGhekQdRvcZQQ2ncf"
 _AGENT_TUTORIAL_URL = (
@@ -64,10 +66,10 @@ class SettingsDialog(QDialog):
 
         api_key_row = QHBoxLayout()
         self._api_key_edit = QLineEdit()
-        self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Normal)
         self._api_key_edit.setPlaceholderText("输入 API Key")
         api_key_row.addWidget(self._api_key_edit)
-        self._show_key_btn = QPushButton("显示")
+        self._show_key_btn = QPushButton("隐藏")
         self._show_key_btn.setCheckable(True)
         self._show_key_btn.setFixedWidth(52)
         self._show_key_btn.toggled.connect(self._toggle_api_key_visibility)
@@ -86,9 +88,8 @@ class SettingsDialog(QDialog):
         self._context_window_spin.setSingleStep(1_000)
         provider_form.addRow("Context Window:", self._context_window_spin)
 
-        self._api_key_help_btn = QPushButton("点击获取模型API KEY")
-        self._api_key_help_btn.setToolTip(_API_KEY_HELP_URL)
-        self._api_key_help_btn.clicked.connect(self._open_api_key_help_url)
+        self._api_key_help_btn = QPushButton("小白点这里！获取程序无限Token，无限分析")
+        self._api_key_help_btn.clicked.connect(self._show_unlimited_token_info)
         provider_form.addRow("", self._api_key_help_btn)
 
         self._agent_tutorial_btn = QPushButton("智能体使用教程及问题解决方法")
@@ -127,6 +128,14 @@ class SettingsDialog(QDialog):
             "勾选后，每当有新的K线收盘时自动触发分析（与主界面「持续跟踪分析」勾选框同步）"
         )
         general_form.addRow("持续跟踪分析:", self._keep_analysis_check)
+
+        self._cancel_keep_on_retry_check = QCheckBox("重试后取消持续跟踪分析")
+        self._cancel_keep_on_retry_check.setToolTip(
+            "勾选后，当 AI 输出触发校验重试（stage1/stage2），"
+            "自动关闭「持续跟踪分析」开关，停止后续自动分析。\n"
+            "每次打开程序默认关闭。"
+        )
+        general_form.addRow("重试行为:", self._cancel_keep_on_retry_check)
 
         self._context_warning_spin = QSpinBox()
         self._context_warning_spin.setRange(1, 100)
@@ -177,7 +186,20 @@ class SettingsDialog(QDialog):
         self._last_timeframe_edit = QLineEdit()
         general_form.addRow("上次周期:", self._last_timeframe_edit)
 
+        self._alert_on_order_check = QCheckBox(
+            "有下单机会时发出警报音和弹窗，并自动跳转到「决策」页"
+        )
+        self._alert_on_order_check.setToolTip(
+            "当阶段二给出限价单、突破单或市价单时：播放系统提示音、弹出摘要对话框，"
+            "并切换到右侧「决策」标签页；不再自动进入「决策树可视化」播放演示。"
+        )
+        general_form.addRow("下单提醒:", self._alert_on_order_check)
+
         self._flow_auto_play_check = QCheckBox("决策树可视化生成后自动播放路径")
+        self._flow_auto_play_check.setToolTip(
+            "分析完成后自动切换到「决策树可视化」并播放路径动画。"
+            "若已开启「下单提醒」且本轮有下单机会，则优先走下单提醒，不播放演示。"
+        )
         general_form.addRow("决策树播放:", self._flow_auto_play_check)
 
         self._flow_play_seconds_spin = QSpinBox()
@@ -235,6 +257,9 @@ class SettingsDialog(QDialog):
         self._keep_analysis_check.setChecked(
             bool(getattr(g, "keep_analysis", False))
         )
+        self._cancel_keep_on_retry_check.setChecked(
+            bool(getattr(g, "cancel_keep_analysis_on_retry", False))
+        )
         self._context_warning_spin.setValue(int(g.context_warning_threshold_pct))
         self._stream_font_spin.setValue(int(getattr(g, "stream_pane_font_pt", 11)))
         self._chart_seq_font_spin.setValue(int(getattr(g, "chart_seq_label_font_pt", 7)))
@@ -247,6 +272,9 @@ class SettingsDialog(QDialog):
             self._decision_stance_combo.setCurrentIndex(stance_idx)
         self._last_symbol_edit.setText(g.last_symbol)
         self._last_timeframe_edit.setText(g.last_timeframe)
+        self._alert_on_order_check.setChecked(
+            bool(getattr(g, "alert_on_order_opportunity", True))
+        )
         self._flow_auto_play_check.setChecked(
             getattr(g, "decision_flow_auto_play", False)
         )
@@ -278,28 +306,41 @@ class SettingsDialog(QDialog):
             "PackyAPI 示例：https://www.packyapi.com/v1"
         )
 
+    def _apply_qclaw_provider(self) -> str | None:
+        """Detect QClaw and write provider fields. Returns error text, or None."""
+        from pa_agent.ai.qclaw_connector import apply_qclaw_provider_to_settings
+
+        return apply_qclaw_provider_to_settings(self._settings)
+
     def _on_save(self) -> None:
         p = self._settings.provider
         g = self._settings.general
 
         model = self._model_edit.text().strip()
-        base_url = self._base_url_edit.text().strip()
-        field_err = self._validate_provider_fields(model, base_url)
-        if field_err:
-            QMessageBox.warning(self, "AI 提供商配置有误", field_err)
-            return
+        if is_openclaw_model(model):
+            qclaw_err = self._apply_qclaw_provider()
+            if qclaw_err:
+                QMessageBox.warning(self, "QClaw 配置异常", qclaw_err)
+                return
+        else:
+            base_url = self._base_url_edit.text().strip()
+            field_err = self._validate_provider_fields(model, base_url)
+            if field_err:
+                QMessageBox.warning(self, "AI 提供商配置有误", field_err)
+                return
 
-        p.model = model
-        p.base_url = base_url
-        p.api_key = self._api_key_edit.text()
-        p.thinking = self._thinking_check.isChecked()
-        p.reasoning_effort = self._reasoning_effort_combo.currentText()  # type: ignore[assignment]
-        p.context_window = self._context_window_spin.value()
+            p.model = model
+            p.base_url = base_url
+            p.api_key = self._api_key_edit.text()
+            p.thinking = self._thinking_check.isChecked()
+            p.reasoning_effort = self._reasoning_effort_combo.currentText()  # type: ignore[assignment]
+            p.context_window = self._context_window_spin.value()
 
         g.analysis_bar_count = self._analysis_bar_count_spin.value()
         g.refresh_interval_ms = self._refresh_interval_spin.value()
         g.auto_resume_chart_after_analysis = self._auto_resume_chart_check.isChecked()
         g.keep_analysis = self._keep_analysis_check.isChecked()
+        g.cancel_keep_analysis_on_retry = self._cancel_keep_on_retry_check.isChecked()
         g.context_warning_threshold_pct = float(self._context_warning_spin.value())
         g.stream_pane_font_pt = self._stream_font_spin.value()
         g.chart_seq_label_font_pt = self._chart_seq_font_spin.value()
@@ -307,6 +348,7 @@ class SettingsDialog(QDialog):
         g.decision_stance = self._decision_stance_combo.currentData()  # type: ignore[assignment]
         g.last_symbol = self._last_symbol_edit.text().strip()
         g.last_timeframe = self._last_timeframe_edit.text().strip()
+        g.alert_on_order_opportunity = self._alert_on_order_check.isChecked()
         g.decision_flow_auto_play = self._flow_auto_play_check.isChecked()
         g.decision_flow_play_seconds = self._flow_play_seconds_spin.value()
         g.decision_flow_default_zoom_pct = self._flow_default_zoom_spin.value()
@@ -334,16 +376,34 @@ class SettingsDialog(QDialog):
         if self._decision_flow_play_handler is not None:
             self._decision_flow_play_handler()
 
-    def _open_api_key_help_url(self) -> None:
-        QDesktopServices.openUrl(QUrl(_API_KEY_HELP_URL))
+    def _show_unlimited_token_info(self) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("获取无限Token")
+        layout = QVBoxLayout(dlg)
+        label = QLabel(
+            "获取无限Token方法需付费49.9元，付费后你将获得<br>"
+            "Deepseek V4 Pro/GLM5.1/Kimi2.6等\"满血\"模型的无限分析方法<br>"
+            "注意无限Token只支持使用这个分析软件<br>"
+            "如果你愿意付费，请联系QQ：564020069<br><br>"
+            "如果你不愿意付费，你可以用自己的模型api，如果你不知道模型api是什么<br>"
+            "可以直接跟龙虾说：<br>"
+            "PA_Agent这个程序的模型api有什么作用，该怎么填？<br>"
+            "请教我填上Deepseek官方的模型API接口"
+        )
+        label.setStyleSheet("font-size: 22pt;")
+        layout.addWidget(label)
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        btn_box.accepted.connect(dlg.accept)
+        layout.addWidget(btn_box)
+        dlg.exec()
 
     def _open_agent_tutorial_url(self) -> None:
         QDesktopServices.openUrl(QUrl(_AGENT_TUTORIAL_URL))
 
     def _toggle_api_key_visibility(self, checked: bool) -> None:
         if checked:
-            self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Normal)
-            self._show_key_btn.setText("隐藏")
-        else:
             self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
             self._show_key_btn.setText("显示")
+        else:
+            self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Normal)
+            self._show_key_btn.setText("隐藏")

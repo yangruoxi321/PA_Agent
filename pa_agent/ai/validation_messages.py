@@ -9,6 +9,8 @@ _PREFIX_RULES: tuple[tuple[str, str], ...] = (
     ("s2:", "【阶段二】"),
     ("trace:", "【决策路径】"),
     ("metrics:", "【盈亏比/方程】"),
+    ("limit long:", "【限价做多·K1】"),
+    ("limit short:", "【限价做空·K1】"),
     ("breakout_price:", "【突破价】"),
     ("signal_chain:", "【信号链】"),
     ("next_bar_prediction", "【下一根预期】"),

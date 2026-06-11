@@ -7,6 +7,7 @@ from pa_agent.ai.json_validator import Ok, ValidationError
 from pa_agent.data.base import IndicatorBundle, KlineBar, KlineFrame
 from pa_agent.util.trade_metrics import (
     compute_risk_reward,
+    max_risk_reward_ratio,
     passes_trader_equation,
     validate_order_trade_metrics,
 )
@@ -34,7 +35,7 @@ def _stage2_trade_obj(**decision_overrides) -> dict:
         "order_type": "突破单",
         "order_direction": "做多",
         "entry_price": 102.1,
-        "take_profit_price": 106.0,
+        "take_profit_price": 106.5,
         "stop_loss_price": 100.0,
         "reasoning": "test",
         "diagnosis_confidence": 60,
@@ -134,11 +135,29 @@ def test_good_trade_passes_aggressive_stance() -> None:
         "order_type": "限价单",
         "order_direction": "做多",
         "entry_price": 2650.0,
-        "take_profit_price": 2700.0,
+        "take_profit_price": 2690.0,
         "stop_loss_price": 2620.0,
         "estimated_win_rate": 52,
     }
     assert not validate_order_trade_metrics(decision, decision_stance="aggressive")
+
+
+def test_excessive_rr_rejected() -> None:
+    """2:1 reward exceeds the 1.5:1 cap."""
+    decision = {
+        "order_type": "限价单",
+        "order_direction": "做多",
+        "entry_price": 100.0,
+        "take_profit_price": 110.0,
+        "stop_loss_price": 95.0,
+        "estimated_win_rate": 55,
+    }
+    errors = validate_order_trade_metrics(decision, decision_stance="aggressive")
+    assert errors
+    assert any("exceeds maximum" in e for e in errors)
+    rr = compute_risk_reward(100.0, 110.0, 95.0, "做多")
+    assert rr is not None
+    assert rr["ratio"] > max_risk_reward_ratio()
 
 
 def test_stage2_validator_coerces_bad_rr_to_no_order() -> None:
@@ -217,7 +236,7 @@ def test_stage2_validator_coerces_bad_rr_to_no_order() -> None:
 
 def test_stage2_validator_auto_fixes_breakout_entry_at_or_inside_basis_high() -> None:
     """Entry at/below K2 high is bumped to high + 1 tick before breakout_price check."""
-    obj = _stage2_trade_obj(entry_price=101.5, take_profit_price=106.0, stop_loss_price=100.0)
+    obj = _stage2_trade_obj(entry_price=101.5, take_profit_price=106.5, stop_loss_price=100.0)
     result = validator.validate(
         "stage2",
         json.dumps(obj),
@@ -229,7 +248,8 @@ def test_stage2_validator_auto_fixes_breakout_entry_at_or_inside_basis_high() ->
     assert entry > 102.0
 
 
-def test_stage2_validator_rejects_stale_entry_bar() -> None:
+def test_stage2_validator_normalizes_stale_entry_bar_to_pending() -> None:
+    """Lenient mode treats stale pending-entry variants as pending, not hard-fail."""
     obj = _stage2_trade_obj()
     obj["bar_analysis"]["entry_bar"]["freshness"] = "stale"
     result = validator.validate(
@@ -238,8 +258,8 @@ def test_stage2_validator_rejects_stale_entry_bar() -> None:
         decision_stance="aggressive",
         kline_frame=_frame(),
     )
-    assert isinstance(result, ValidationError)
-    assert any("signal_chain:" in f for f in result.invalid_fields)
+    assert isinstance(result, Ok)
+    assert result.obj["bar_analysis"]["entry_bar"]["freshness"] == "pending"
 
 
 def test_stage2_validator_accepts_pending_limit_entry_bar() -> None:
@@ -247,7 +267,7 @@ def test_stage2_validator_accepts_pending_limit_entry_bar() -> None:
         order_type="限价单",
         order_direction="做空",
         entry_price=101.0,
-        take_profit_price=96.0,
+        take_profit_price=98.0,
         stop_loss_price=103.0,
         trade_confidence=65,
         estimated_win_rate=60,
@@ -279,7 +299,7 @@ def test_stage2_validator_accepts_planned_limit_without_signal_bar() -> None:
         order_type="限价单",
         order_direction="做空",
         entry_price=101.0,
-        take_profit_price=96.0,
+        take_profit_price=98.0,
         stop_loss_price=103.0,
         trade_confidence=50,
         trade_confidence_reasoning="极度激进档接受无信号棒瑕疵",
@@ -343,8 +363,15 @@ def test_stage2_validator_rejects_strong_signal_without_signal_bar() -> None:
     assert any("signal_bar.bar" in f for f in result.invalid_fields)
 
 
-def test_stage2_validator_rejects_pending_market_entry_bar() -> None:
-    obj = _stage2_trade_obj(order_type="市价单", entry_basis_bar=None, entry_basis_extreme=None)
+def test_stage2_validator_auto_fixes_pending_market_entry_bar() -> None:
+    obj = _stage2_trade_obj(
+        order_type="市价单",
+        entry_price=102.1,
+        take_profit_price=105.0,
+        stop_loss_price=100.0,
+        entry_basis_bar=None,
+        entry_basis_extreme=None,
+    )
     obj["bar_analysis"]["entry_bar"] = {
         "bar": None,
         "strength": "not_triggered",
@@ -358,8 +385,8 @@ def test_stage2_validator_rejects_pending_market_entry_bar() -> None:
         decision_stance="aggressive",
         kline_frame=_frame(),
     )
-    assert isinstance(result, ValidationError)
-    assert any("market order requires" in f for f in result.invalid_fields)
+    assert isinstance(result, Ok)
+    assert result.obj["bar_analysis"]["entry_bar"]["bar"] == "K1"
 
 
 def test_stage2_validator_accepts_grounded_trade() -> None:

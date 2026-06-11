@@ -67,6 +67,13 @@ def _is_deepseek_native(base_url: str) -> bool:
     return "deepseek.com" in (base_url or "").lower()
 
 
+def _is_deepseek_model(model: str) -> bool:
+    """Check if the model name indicates a DeepSeek model (e.g. deepseek-v4-pro),
+    or if it's 'openclaw' which routes to pool-deepseek-v4-flash."""
+    m = (model or "").lower()
+    return "deepseek" in m or m == "openclaw"
+
+
 def _is_kkai_openai_proxy(base_url: str) -> bool:
     """KKAI (api.kkone.vip) OpenAI-compatible gateway."""
     url = (base_url or "").lower()
@@ -193,9 +200,10 @@ def _resolve_thinking_params(
     _effort = reasoning_effort if reasoning_effort is not None else settings.reasoning_effort
     model = settings.model or ""
 
-    if _is_deepseek_native(settings.base_url):
+    if _is_deepseek_native(settings.base_url) or _is_deepseek_model(model):
         # DeepSeek v4+ requires thinking.type=adaptive + output_config.effort;
         # the old "enabled"/"disabled" values are no longer accepted.
+        # Also covers DeepSeek models proxied through non-native gateways (e.g. QClaw).
         if _thinking:
             extra_body: dict[str, Any] = {
                 "thinking": {"type": "adaptive"},
@@ -276,6 +284,10 @@ class DeepSeekClient:
     def __init__(self, settings: AIProviderSettings, logger_: logging.Logger | None = None) -> None:
         self._settings = settings
         self._log = logger_ or logger
+
+    def update_provider(self, settings: AIProviderSettings) -> None:
+        """Replace in-memory provider settings (e.g. after QClaw auto-fallback)."""
+        self._settings = settings
 
     def chat(
         self,

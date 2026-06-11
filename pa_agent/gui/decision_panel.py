@@ -7,6 +7,7 @@ from typing import Any
 from pa_agent.util.trade_metrics import (
     compute_risk_reward,
     format_estimated_win_rate,
+    max_risk_reward_ratio,
     min_risk_reward_ratio,
     passes_trader_equation,
 )
@@ -530,7 +531,11 @@ class DecisionPanel(QWidget):
                     and passes_trader_equation(win_pct, risk, reward)
                 )
                 min_rr = min_risk_reward_ratio(decision_stance)
-                metrics_ok = ratio >= min_rr and (eq_ok if win_pct is not None else True)
+                max_rr = max_risk_reward_ratio()
+                metrics_ok = (
+                    min_rr <= ratio <= max_rr
+                    and (eq_ok if win_pct is not None else True)
+                )
                 eq_note = ""
                 if win_pct is not None:
                     eq_note = " · 方程通过" if eq_ok else " · 方程不通过"
