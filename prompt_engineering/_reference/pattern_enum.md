@@ -21,12 +21,20 @@
 - `ail` / `ais`：Always In Long / Always In Short。
 - `20gb`：连续约20根K线未触及 EMA。
 - `gap_bar`：均线缺口棒（Moving Average Gap Bar），不是普通开盘跳空。
+- `opening_gap`：开盘跳空缺口，区别于 `gap_bar`。
+- `spike_candidate`：单根超大突破棒或尚未达到2根的尖峰候选；不得单独触发 `cycle_position=spike`。
+- `spike_active` / `spike_ending` / `spike_transitioning`：尖峰阶段标签，分别对应进行中、暂停/衰竭中、已转通道/区间评估。
 - `double_top_bottom`：双顶、双底、微型双顶或微型双底。
 - `climax`：买进高潮、卖出高潮、连续高潮。
+- `climax_warning` / `climax_triggered`：高潮风险预警/已触发，必须与 spike 结构状态分开记录。
 - `shrinking_stairs`：收缩台阶或推进幅度递减。
 - `failed_signal`：信号失败，失败信号的入场价/止损位成为磁力位。
 - `magnet`：磁力位，如前高/低、突破点、失败信号价位、保护性止损集中区。
 - `trapped_traders`：被套交易者结构。
+- `ascending_triangle`：上升三角形，上边界水平+下边界上升。
+- `descending_triangle`：下降三角形，下边界水平+上边界下降。
+- `symmetrical_triangle`：对称三角形，上边界下降+下边界上升，收敛形态。
+- `expanding_triangle`：扩张三角形，边界向外扩散，不交易形态。
 
 ## bar_type 建议枚举
 
@@ -47,6 +55,7 @@
 - `tr_boundary`
 - `breakout_pullback`
 - `EMA_pullback`
+- `triangle_breakout`
 - `none`
 
 ## 命名原则

@@ -298,18 +298,26 @@ class MainWindow(QMainWindow):
         self._status_bar.showMessage("就绪")
         self._refresh_api_key_ui_state()
 
-        # ── Menu bar ──────────────────────────────────────────────────────────
+        # ── Menu bar ─── 顶层直接触发按钮 + 演示模式下拉 ────────────────────
         menu_bar: QMenuBar = self.menuBar()  # type: ignore[assignment]
-        settings_menu = menu_bar.addMenu("设置")
 
-        open_settings_action = QAction("打开设置…", self)
-        open_settings_action.triggered.connect(self._open_settings_dialog)
-        settings_menu.addAction(open_settings_action)
+        # 1. AI 模型设置 — 点击直接弹对话框（无下拉）
+        _ai_model_action = QAction("AI 模型设置", self)
+        _ai_model_action.triggered.connect(self._open_ai_model_settings_dialog)
+        menu_bar.addAction(_ai_model_action)
 
-        settings_menu.addSeparator()
+        # 2. 飞书设置 — 点击直接弹对话框（无下拉）
+        _feishu_action = QAction("飞书设置", self)
+        _feishu_action.triggered.connect(self._open_feishu_settings_dialog)
+        menu_bar.addAction(_feishu_action)
 
-        # 演示模式子菜单
-        demo_menu = QMenu("演示模式", self)
+        # 3. 其他通用设置 — 点击直接弹对话框（无下拉）
+        _general_action = QAction("其他通用设置", self)
+        _general_action.triggered.connect(self._open_general_settings_dialog)
+        menu_bar.addAction(_general_action)
+
+        # 4. 演示模式 — 保留下拉菜单
+        demo_menu = menu_bar.addMenu("演示模式")
         self._demo_manual_action = QAction("手动选择记录…", self)
         self._demo_manual_action.triggered.connect(lambda: self._on_demo_menu_action("manual"))
         demo_menu.addAction(self._demo_manual_action)
@@ -321,7 +329,6 @@ class MainWindow(QMainWindow):
         self._demo_exit_action.triggered.connect(self._exit_demo_mode)
         self._demo_exit_action.setEnabled(False)
         demo_menu.addAction(self._demo_exit_action)
-        settings_menu.addMenu(demo_menu)
 
     def _build_workbench(self) -> QWidget:
         """Build chart + AI sidebar workbench."""
@@ -547,7 +554,7 @@ class MainWindow(QMainWindow):
         outer_layout.addLayout(ctrl_layout)
 
         self._api_key_alert_label = QLabel(
-            "未配置 API Key：请点击左上角「设置」按钮，在设置中填写 API Key 后才能进行 AI 分析。"
+            "未配置 API Key：请点击左上角「AI 模型」按钮，在设置中填写 API Key 后才能进行 AI 分析。"
         )
         self._api_key_alert_label.setWordWrap(True)
         self._api_key_alert_label.setStyleSheet(
@@ -1211,6 +1218,7 @@ class MainWindow(QMainWindow):
             self._refresh_chart_once()
         finally:
             self._switching = False
+            self._update_submit_button_state()
 
     # ── Slots ─────────────────────────────────────────────────────────────────
 
@@ -1844,6 +1852,7 @@ class MainWindow(QMainWindow):
             # Ensure the flag is always cleared after the check so the next
             # frame_ready signal does not unexpectedly fire analysis.
             self._auto_incremental_pending = False
+            self._update_submit_button_state()
 
     def _check_auto_incremental(self, symbol: str, timeframe: str) -> None:
         """After a symbol/tf switch, look for a prior record and set the
@@ -3089,24 +3098,55 @@ class MainWindow(QMainWindow):
             self._decision_badge.setText(f"决策: {order}")
             if self._maybe_alert_order_opportunity(inner):
                 # ── Trade record: log to CSV + chart image ────────────────────
+                _meta_symbol = ""
+                _meta_timeframe = ""
                 try:
                     from pa_agent.records.trade_logger import save_trade_record
                     settings = getattr(self._ctx, "settings", None)
                     model_name = ""
                     if settings is not None:
                         model_name = getattr(settings.provider, "model", "") or ""
+                    _meta_symbol = getattr(self._ctx.settings.general, "last_symbol", "") if settings else ""
+                    _meta_timeframe = getattr(self._ctx.settings.general, "last_timeframe", "") if settings else ""
                     save_trade_record(
                         decision_inner=inner,
                         stage2_full=decision,
                         stage1_diagnosis=self._current_stage1_diagnosis() or None,
                         frame=getattr(self, "_last_analysis_frame", None),
-                        meta_symbol=getattr(self._ctx.settings.general, "last_symbol", "") if settings else "",
-                        meta_timeframe=getattr(self._ctx.settings.general, "last_timeframe", "") if settings else "",
+                        meta_symbol=_meta_symbol,
+                        meta_timeframe=_meta_timeframe,
                         decision_stance=getattr(getattr(settings, "general", None), "decision_stance", "") if settings else "",
                         model_name=model_name,
                     )
                 except Exception as _exc:  # noqa: BLE001
                     logger.warning("Trade record logging failed: %s", _exc)
+
+                # ── 飞书通知：下单信号推送 ─────────────────────────────────────
+                try:
+                    from pa_agent.notify.feishu_notifier import send_order_signal
+                    from pa_agent.records.trade_logger import _TRADE_RECORDS_DIR
+
+                    # 找本次交易记录生成的最新 PNG（按修改时间倒序取第一个）
+                    _safe_sym = _meta_symbol.replace("/", "-").replace("\\", "-")
+                    _safe_tf = _meta_timeframe.replace("/", "-")
+                    _img_glob = f"{_safe_sym}_{_safe_tf}_*.png"
+                    _candidates = sorted(
+                        _TRADE_RECORDS_DIR.glob(_img_glob),
+                        key=lambda _p: _p.stat().st_mtime,
+                        reverse=True,
+                    )
+                    _latest_img = _candidates[0] if _candidates else None
+
+                    send_order_signal(
+                        decision_inner=inner,
+                        stage2_full=decision,
+                        symbol=_meta_symbol,
+                        timeframe=_meta_timeframe,
+                        chart_image_path=_latest_img,
+                    )
+                except Exception as _feishu_exc:  # noqa: BLE001
+                    logger.warning("飞书通知失败（不影响主流程）: %s", _feishu_exc)
+
             elif getattr(self, "_demo_mode", False):
                 self._present_decision_flow_playback(force_play=True)
 
@@ -3335,14 +3375,14 @@ class MainWindow(QMainWindow):
         box.setInformativeText(
             "建议操作：\n"
             "1) 换一个更长上下文/更稳的模型；或\n"
-            "2) 在「设置」里关闭「Thinking」后重试。\n\n"
+            "2) 在「AI 模型」设置里关闭「Thinking」后重试。\n\n"
             f"诊断摘要：{key}"
         )
-        btn_open = box.addButton("打开设置", QMessageBox.ButtonRole.AcceptRole)
+        btn_open = box.addButton("打开 AI 模型设置", QMessageBox.ButtonRole.AcceptRole)
         box.addButton("知道了", QMessageBox.ButtonRole.RejectRole)
         box.exec()
         if box.clickedButton() == btn_open:
-            self._open_settings_dialog()
+            self._open_ai_model_settings_dialog()
 
     def _on_analysis_error(self, message: str) -> None:
         """Unhandled exception in the analysis worker thread."""
@@ -3829,12 +3869,16 @@ class MainWindow(QMainWindow):
         cur = status_bar.currentMessage() or ""
         if cur in ("就绪", "") or "API Key" in cur or "提交分析已锁定" in cur:
             status_bar.showMessage(
-                "未配置 API Key：请点击左上角「设置」填写后才能分析"
+                "未配置 API Key：请点击左上角「AI 模型」填写后才能分析"
             )
 
     def _open_settings_dialog(self, *, focus_api_key: bool = False) -> None:
-        """Open the SettingsDialog; import lazily to avoid circular imports."""
-        from pa_agent.gui.settings_dialog import SettingsDialog
+        """内部使用：启动时检测到 API Key 未配置时直接打开 AI 模型设置."""
+        self._open_ai_model_settings_dialog(focus_api_key=focus_api_key)
+
+    def _open_ai_model_settings_dialog(self, *, focus_api_key: bool = False) -> None:
+        """打开 AI 模型设置对话框."""
+        from pa_agent.gui.ai_model_settings_dialog import AIModelSettingsDialog
         from pa_agent.config.settings import Settings
         from pa_agent.util.logging import update_api_key
 
@@ -3842,8 +3886,7 @@ class MainWindow(QMainWindow):
         if settings is None:
             settings = Settings()
 
-        dlg = SettingsDialog(settings, parent=self)
-        dlg.set_decision_flow_play_handler(self._trigger_decision_flow_playback)
+        dlg = AIModelSettingsDialog(settings, parent=self)
         if focus_api_key:
             dlg.focus_api_key_field()
         if dlg.exec():
@@ -3858,10 +3901,32 @@ class MainWindow(QMainWindow):
                 key = getattr(settings.provider, "api_key", "") or ""
                 self._debug_widget._api_key = key
                 self._ai_sidebar.bind_settings(settings)
-                self._apply_chart_display_settings()
                 update_api_key(key)
             self._update_ai_mode_label()
             self._refresh_api_key_ui_state()
+
+    def _open_feishu_settings_dialog(self) -> None:
+        """打开飞书机器人设置对话框."""
+        from pa_agent.gui.feishu_settings_dialog import FeishuSettingsDialog
+
+        dlg = FeishuSettingsDialog(parent=self)
+        dlg.exec()
+
+    def _open_general_settings_dialog(self) -> None:
+        """打开通用设置对话框."""
+        from pa_agent.gui.general_settings_dialog import GeneralSettingsDialog
+        from pa_agent.config.settings import Settings
+
+        settings: Settings = self._ctx.settings  # type: ignore[assignment]
+        if settings is None:
+            settings = Settings()
+
+        dlg = GeneralSettingsDialog(settings, parent=self)
+        dlg.set_decision_flow_play_handler(self._trigger_decision_flow_playback)
+        if dlg.exec():
+            self._ctx.settings = settings
+            self._ai_sidebar.bind_settings(settings)
+            self._apply_chart_display_settings()
 
     def _apply_chart_display_settings(self) -> None:
         """Sync chart label font sizes from persisted general settings."""
@@ -3920,7 +3985,7 @@ class MainWindow(QMainWindow):
     def _submit_block_reason(self) -> str | None:
         """Human-readable reason when submit is disabled, or None if allowed."""
         if not self._has_api_key_configured():
-            return "未配置 API Key，请点击左上角「设置」填写后才能分析"
+            return "未配置 API Key，请点击左上角「AI 模型」填写后才能分析"
         if self._demo_mode:
             return "演示模式中，请退出演示后再提交真实分析"
         if self._analysis_in_progress:

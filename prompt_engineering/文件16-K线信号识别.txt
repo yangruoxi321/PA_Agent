@@ -344,26 +344,26 @@
    - 触发条件：连续3根以上同方向趋势棒（TB），且K线实体均大于近期平均的1.5倍，几乎无重叠
    - 入场方式：在最新一根趋势棒的收盘价直接入场（不等回撤）
    - 止损：最近一根回撤K线的极点外1跳动（若无回撤，则最近一根趋势棒的低/高点外1跳动）
-   - 目标：尖峰高度的等量移动（Measured Move）
+   - 目标：尖峰高度的等量移动（Measured Move）候选；若目标导致回报÷风险>1.5，只能按「二元决策.txt §10.3」widen-stop 适配
    - ⚠️ 仅在spike_stage="active"时适用；spike_stage="ending"或"transitioning"时禁用追尖峰
-   - ⚠️ 止损空间超过尖峰高度的30%时放弃该交易
+   - ⚠️ 2根 spike 禁用 SCS；3根以上才可评估。放大止损后若超过尖峰高度50%，放弃该交易
 
 2. 尖峰回撤入场信号（Spike Pullback Signal, SPS）
    - 触发条件：尖峰中出现2~4根K线的回撤，回撤中出现信号K线（强趋势棒收盘）
    - 入场方式：在回撤信号K线收盘确认后入场（这是传统的"信号棒+入场棒"模式在尖峰中的应用）
    - 止损：回撤信号棒极点外1跳动
-   - 目标：尖峰高度的等量移动
+   - 目标：尖峰高度的等量移动候选；最终必须≤1.5R，或用 spike widen-stop 适配
    - 适用范围：spike_stage="active"或"ending"均可
 
 3. 最终旗形入场信号（Final Flag Entry Signal, FFES）
    - 触发条件：尖峰后第一次回撤形成的旗形被突破
    - 入场方式：旗形突破的信号棒极点外1跳动设止损单入场
    - 止损：旗形另一端极点外1跳动
-   - 目标：旗形突破点到尖峰等量移动
+   - 目标：旗形突破点到尖峰等量移动候选；最终必须≤1.5R，或用 spike widen-stop 适配
    - 适用范围：spike_stage="ending"或"transitioning"（尖峰后转入通道的最佳入场时机）
 
 4. 尖峰态信号识别与市场状态的对应
-   - spike_stage="active" → 可用信号：SCS（追尖峰）、SPS（回撤入场）
+   - spike_stage="active" → 可用信号：3根以上可评估SCS（追尖峰）、2根以上可评估SPS（回撤入场）
    - spike_stage="ending" → 可用信号：SPS（回撤入场）、FFES（最终旗形）；禁用SCS
    - spike_stage="transitioning" → 可用信号：FFES（最终旗形）；其余按通道态信号规则处理
    - cycle_position≠spike → 不适用以上任何信号规则
