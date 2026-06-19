@@ -25,6 +25,12 @@ def timeframe_to_seconds(timeframe: str) -> int | None:
     tf = str(timeframe or "").strip()
     if not tf:
         return None
+    # Month uses uppercase 'M' (MT5 MN1 / TradingView monthly); approximate as
+    # 30 days. Must be checked BEFORE the case-insensitive regex below, which
+    # would otherwise mis-read 'M' as minutes ('m').
+    month = re.fullmatch(r"(\d+)M", tf)
+    if month:
+        return int(month.group(1)) * 30 * 86400
     if tf in _TIMEFRAME_SECONDS:
         return _TIMEFRAME_SECONDS[tf]
     m = _TIMEFRAME_SECONDS_RE.match(tf)

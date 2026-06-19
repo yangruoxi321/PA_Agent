@@ -12,6 +12,7 @@ def test_defaults(tmp_path):
     s = load_settings(p)
     assert s.provider.model == "deepseek-v4-flash"
     assert s.provider.base_url == "https://api.deepseek.com"
+    assert s.provider.api_format == "openai"
     assert s.provider.thinking is True
     assert s.provider.reasoning_effort == "max"
     assert s.provider.context_window == 2_000_000

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 DecisionStance = Literal["conservative", "balanced", "aggressive", "extreme_aggressive"]
 DataSourceKind = Literal["mt5", "tradingview", "akshare", "eastmoney"]
 NormalizationMode = Literal["strict", "lenient"]
+ApiWireFormat = Literal["openai", "anthropic"]
 
 
 class AIProviderSettings(BaseModel):
@@ -17,6 +18,8 @@ class AIProviderSettings(BaseModel):
     base_url: str = "https://api.deepseek.com"
     api_key: str = ""
     api_key_encrypted: str = ""
+    #: ``openai`` → /v1/chat/completions; ``anthropic`` → /v1/messages
+    api_format: ApiWireFormat = "openai"
     thinking: bool = True
     reasoning_effort: Literal["low", "medium", "high", "max"] = "max"
     context_window: int = 2_000_000

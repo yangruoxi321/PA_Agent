@@ -2,6 +2,7 @@
   "provider": {
     "model": "deepseek-chat",
     "base_url": "https://api.deepseek.com",
+    "api_format": "openai",
     "api_key_encrypted": "",
     "thinking": true,
     "reasoning_effort": "high",

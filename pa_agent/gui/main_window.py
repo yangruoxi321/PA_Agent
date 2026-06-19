@@ -1054,7 +1054,7 @@ class MainWindow(QMainWindow):
 
     def _populate_timeframe_combo_for_source(self) -> None:
         data_source = getattr(self._ctx, "data_source", None)
-        preferred = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+        preferred = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"]
         supported: list[str] = []
         if data_source is not None:
             try:
@@ -3978,8 +3978,13 @@ class MainWindow(QMainWindow):
                 f"PackyAPI 思考: {thinking} · {mode}={effort} · {p.model}"
             )
         else:
+            wire = (
+                "Anthropic"
+                if getattr(p, "api_format", "openai") == "anthropic"
+                else "OpenAI"
+            )
             self._ai_mode_label.setText(
-                f"模型: {p.model} · 思考={('开' if p.thinking else '关')}"
+                f"模型: {p.model} · {wire} · 思考={('开' if p.thinking else '关')}"
             )
 
     # ── Helpers ───────────────────────────────────────────────────────────────

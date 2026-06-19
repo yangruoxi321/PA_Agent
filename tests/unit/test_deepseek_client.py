@@ -365,6 +365,143 @@ def test_stream_chat_passes_tool_choice_none_for_openclaw() -> None:
     assert extra.get("tool_choice") == "none"
 
 
+def test_openrouter_thinking_sends_reasoning_effort_object() -> None:
+    """OpenRouter uses the `reasoning` body param (effort), not Anthropic thinking."""
+    settings = _make_settings()
+    settings.base_url = "https://openrouter.ai/api/v1"
+    settings.model = "anthropic/claude-sonnet-4.5"
+    settings.thinking = True
+    settings.reasoning_effort = "max"
+    client = DeepSeekClient(settings)
+
+    mock_resp = _make_mock_response()
+    mock_openai = MagicMock()
+    mock_openai.return_value.chat.completions.create.return_value = mock_resp
+
+    with patch("pa_agent.ai.deepseek_client._OpenAI", mock_openai):
+        client.chat([{"role": "user", "content": "hi"}])
+
+    kwargs = mock_openai.return_value.chat.completions.create.call_args.kwargs
+    # "max" is not an OpenRouter effort → mapped to "high"
+    assert kwargs["extra_body"]["reasoning"] == {"effort": "high"}
+    # Must not also send top-level reasoning_effort (avoid duplication/conflict)
+    assert "reasoning_effort" not in kwargs
+
+
+def test_openrouter_thinking_off_disables_reasoning() -> None:
+    settings = _make_settings()
+    settings.base_url = "https://openrouter.ai/api/v1"
+    settings.model = "anthropic/claude-sonnet-4.5"
+    settings.thinking = False
+    client = DeepSeekClient(settings)
+
+    mock_resp = _make_mock_response()
+    mock_openai = MagicMock()
+    mock_openai.return_value.chat.completions.create.return_value = mock_resp
+
+    with patch("pa_agent.ai.deepseek_client._OpenAI", mock_openai):
+        client.chat([{"role": "user", "content": "hi"}])
+
+    kwargs = mock_openai.return_value.chat.completions.create.call_args.kwargs
+    assert kwargs["extra_body"]["reasoning"] == {"enabled": False}
+    assert "reasoning_effort" not in kwargs
+
+
+def test_openrouter_deepseek_model_does_not_route_to_native() -> None:
+    """A deepseek/* model on OpenRouter must use the OpenRouter reasoning param."""
+    from pa_agent.ai.deepseek_client import _resolve_thinking_params
+
+    settings = _make_settings()
+    settings.base_url = "https://openrouter.ai/api/v1"
+    settings.model = "deepseek/deepseek-chat-v3.1"
+    settings.thinking = True
+
+    extra, effort = _resolve_thinking_params(settings, thinking=True, reasoning_effort="high")
+    assert extra == {"reasoning": {"effort": "high"}}
+    assert effort is None
+    assert "output_config" not in extra  # not DeepSeek-native adaptive
+
+
+def test_openrouter_chat_reads_reasoning_field() -> None:
+    """chat() picks up reasoning from message.reasoning (OpenRouter)."""
+    settings = _make_settings()
+    settings.base_url = "https://openrouter.ai/api/v1"
+    settings.model = "anthropic/claude-sonnet-4.5"
+    client = DeepSeekClient(settings)
+
+    msg = MagicMock()
+    msg.content = "answer"
+    msg.reasoning_content = ""
+    msg.reasoning_details = None
+    msg.reasoning = "router-thought"
+    choice = MagicMock()
+    choice.message = msg
+    usage = MagicMock(
+        prompt_tokens=10,
+        completion_tokens=5,
+        total_tokens=15,
+        prompt_tokens_details=MagicMock(cached_tokens=0),
+    )
+    resp = MagicMock()
+    resp.choices = [choice]
+    resp.usage = usage
+    resp.id = "req-or"
+    resp.model = "anthropic/claude-sonnet-4.5"
+
+    mock_openai = MagicMock()
+    mock_openai.return_value.chat.completions.create.return_value = resp
+
+    with patch("pa_agent.ai.deepseek_client._OpenAI", mock_openai):
+        reply = client.chat([{"role": "user", "content": "hi"}])
+
+    assert reply.content == "answer"
+    assert reply.reasoning_content == "router-thought"
+
+
+def test_openrouter_stream_reads_reasoning_delta() -> None:
+    """stream_chat() picks up reasoning from delta.reasoning (OpenRouter)."""
+    settings = _make_settings()
+    settings.base_url = "https://openrouter.ai/api/v1"
+    settings.model = "anthropic/claude-sonnet-4.5"
+    client = DeepSeekClient(settings)
+
+    chunk_reason = MagicMock()
+    chunk_reason.choices = [MagicMock()]
+    delta = MagicMock()
+    delta.reasoning_content = None
+    delta.reasoning_details = None
+    delta.reasoning = "router-think"
+    delta.content = None
+    chunk_reason.choices[0].delta = delta
+    chunk_reason.usage = None
+    chunk_reason.id = "id-or"
+    chunk_reason.model = "anthropic/claude-sonnet-4.5"
+
+    chunk_done = MagicMock()
+    chunk_done.choices = []
+    chunk_done.usage = MagicMock(
+        prompt_tokens=10,
+        completion_tokens=5,
+        total_tokens=15,
+        prompt_tokens_details=MagicMock(cached_tokens=0),
+    )
+
+    captured: list[str] = []
+    mock_openai = MagicMock()
+    mock_openai.return_value.chat.completions.create.return_value = iter(
+        [chunk_reason, chunk_done]
+    )
+
+    with patch("pa_agent.ai.deepseek_client._OpenAI", mock_openai):
+        reply = client.stream_chat(
+            [{"role": "user", "content": "hi"}],
+            on_reasoning_token=captured.append,
+        )
+
+    assert reply.reasoning_content == "router-think"
+    assert captured == ["router-think"]
+
+
 def test_mimo_chat_sends_enable_thinking_extra_body() -> None:
     settings = _make_settings()
     settings.base_url = "https://api.xiaomimimo.com/v1"
@@ -415,3 +552,6 @@ def test_mimo_chat_patches_tool_call_messages_before_send() -> None:
 
     sent_messages = mock_openai.return_value.chat.completions.create.call_args.kwargs["messages"]
     assert sent_messages[1]["reasoning_content"] == ""
+
+
+

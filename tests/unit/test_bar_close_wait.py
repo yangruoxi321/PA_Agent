@@ -31,6 +31,15 @@ def test_timeframe_to_seconds() -> None:
     assert timeframe_to_seconds("5m") == 300
     assert timeframe_to_seconds("1h") == 3600
     assert timeframe_to_seconds("2h") == 7200
+    assert timeframe_to_seconds("1d") == 86400
+    assert timeframe_to_seconds("1w") == 7 * 86400
+
+
+def test_timeframe_to_seconds_month_not_minute() -> None:
+    """Uppercase 'M' = month (~30d), not minute — regex is case-insensitive."""
+    assert timeframe_to_seconds("1M") == 30 * 86400
+    assert timeframe_to_seconds("1m") == 60
+    assert timeframe_to_seconds("1M") != timeframe_to_seconds("1m")
 
 
 def test_seconds_until_bar_closes() -> None:

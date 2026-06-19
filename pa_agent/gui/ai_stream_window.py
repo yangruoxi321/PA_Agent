@@ -266,8 +266,13 @@ class AIStreamPanel(QWidget):
                 f"{p.reasoning_effort if p.thinking else '—'} · {p.model}"
             )
         else:
+            wire = (
+                "Anthropic"
+                if getattr(p, "api_format", "openai") == "anthropic"
+                else "OpenAI"
+            )
             self._mode_label.setText(
-                f"API: {p.model} · 思考={('开' if p.thinking else '关')}"
+                f"API: {p.model} · {wire} · 思考={('开' if p.thinking else '关')}"
             )
 
     def _update_stats(self) -> None:

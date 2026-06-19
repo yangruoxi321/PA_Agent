@@ -74,8 +74,84 @@ class CancelledError(Exception):
     """Raised when a cancel_token is set before or during an API call."""
 
 
+class EmptyAIResponseError(Exception):
+    """Raised when the provider returns an empty, token-less response."""
+
+
+class ProviderEndpointError(Exception):
+    """Raised when base_url points to a web UI/non-API endpoint."""
+
+
+def _is_empty_ai_response(
+    *,
+    content: str,
+    reasoning_content: str,
+    request_id: str,
+    model_name: str,
+    usage: AIUsage,
+) -> bool:
+    return (
+        not (content or "").strip()
+        and not (reasoning_content or "").strip()
+        and not (request_id or "").strip()
+        and not (model_name or "").strip()
+        and usage.prompt_tokens == 0
+        and usage.completion_tokens == 0
+        and usage.total_tokens == 0
+    )
+
+
+def _decode_provider_text(value: Any) -> str | None:
+    """Return text for providers that yield raw string/bytes instead of SDK objects."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return None
+
+
+def _looks_like_html_response(text: str | None) -> bool:
+    stripped = (text or "").lstrip().lower()
+    return stripped.startswith("<!doctype html") or stripped.startswith("<html")
+
+
+def _raise_if_html_response(text: str | None, *, base_url: str) -> None:
+    if not _looks_like_html_response(text):
+        return
+    raise ProviderEndpointError(
+        "Provider returned an HTML web page instead of an OpenAI-compatible API "
+        f"response. Base URL may point to the management UI, not the API endpoint: "
+        f"{base_url}. Try the API base URL, usually ending with /v1."
+    )
+
+
 def _is_deepseek_native(base_url: str) -> bool:
     return "deepseek.com" in (base_url or "").lower()
+
+
+def _api_base_url(base_url: str) -> str:
+    """Return the API base URL expected by the OpenAI SDK."""
+    url = (base_url or "").strip().rstrip("/")
+    suffix = "/chat/completions"
+    if url.lower().endswith(suffix):
+        return url[: -len(suffix)].rstrip("/")
+    return url
+
+
+def _openai_client(settings: AIProviderSettings) -> Any:
+    """Build OpenAI-compatible client with headers accepted by stricter gateways."""
+    return _OpenAI(
+        base_url=_api_base_url(settings.base_url),
+        api_key=settings.api_key,
+        default_headers={
+            "Accept": "application/json, text/event-stream",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "PA_Agent/1.0 Safari/537.36"
+            ),
+        },
+    )
 
 
 def _is_deepseek_model(model: str) -> bool:
@@ -141,6 +217,29 @@ def _is_minimax(base_url: str) -> bool:
     """MiniMax (api.minimax.io) OpenAI-compatible gateway."""
     url = (base_url or "").lower()
     return "minimax.io" in url or "minimax.com" in url
+
+
+def _is_openrouter(base_url: str) -> bool:
+    """OpenRouter (openrouter.ai) OpenAI-compatible gateway."""
+    return "openrouter.ai" in (base_url or "").lower()
+
+
+# OpenRouter exposes a unified reasoning effort across upstream providers;
+# it accepts low/medium/high (no "max"), so map "max" → "high".
+_OPENROUTER_EFFORT: dict[str, str] = {
+    "none": "low",
+    "minimal": "low",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "max": "high",
+    "xhigh": "high",
+}
+
+
+def _openrouter_effort(reasoning_effort: str | None) -> str:
+    key = (reasoning_effort or "medium").strip().lower()
+    return _OPENROUTER_EFFORT.get(key, "medium")
 
 
 # Packy claude-officially returns 400 if max_tokens exceeds model output cap.
@@ -276,6 +375,16 @@ def _resolve_thinking_params(
     _effort = reasoning_effort if reasoning_effort is not None else settings.reasoning_effort
     model = settings.model or ""
 
+    if _is_openrouter(settings.base_url):
+        # OpenRouter normalizes reasoning across upstream providers via the
+        # ``reasoning`` body param (not Anthropic ``thinking`` / DeepSeek
+        # ``output_config``). Reasoning text surfaces as message.reasoning.
+        # Checked before the DeepSeek branch because OpenRouter model ids look
+        # like ``deepseek/deepseek-chat`` and would otherwise route to native.
+        if _thinking:
+            return {"reasoning": {"effort": _openrouter_effort(_effort)}}, None
+        return {"reasoning": {"enabled": False}}, None
+
     if _is_deepseek_native(settings.base_url) or _is_deepseek_model(model):
         # DeepSeek v4+ requires thinking.type=adaptive + output_config.effort;
         # the old "enabled"/"disabled" values are no longer accepted.
@@ -402,6 +511,19 @@ class DeepSeekClient:
             self._settings, extra_body=extra_body, effort=_effort
         )
 
+        if self._settings.api_format == "anthropic":
+            from pa_agent.ai.anthropic_compat import anthropic_messages_chat
+
+            return anthropic_messages_chat(
+                self._settings,
+                api_messages,
+                extra_body=extra_body,
+                max_tokens=_max_tokens,
+                cancel_token=cancel_token,
+                timeout_s=timeout_s,
+                logger_=self._log,
+            )
+
         masked_key = mask_secret(self._settings.api_key)
         self._log.debug(
             "DeepSeekClient.chat: model=%s thinking=%s effort=%s max_tokens=%s "
@@ -418,10 +540,7 @@ class DeepSeekClient:
         if _OpenAI is None:
             raise RuntimeError("openai package is not installed") from _OPENAI_IMPORT_ERROR
 
-        client = _OpenAI(
-            base_url=self._settings.base_url,
-            api_key=self._settings.api_key,
-        )
+        client = _openai_client(self._settings)
 
         t0 = time.monotonic()
         create_kwargs: dict[str, Any] = {
@@ -452,8 +571,52 @@ class DeepSeekClient:
 
         latency_ms = (time.monotonic() - t0) * 1000
 
+        raw_text_response = _decode_provider_text(response)
+        if raw_text_response is not None:
+            _raise_if_html_response(raw_text_response, base_url=self._settings.base_url)
+            usage = AIUsage()
+            content = raw_text_response
+            reasoning_content = ""
+            request_id = ""
+            model_name = ""
+            if _is_empty_ai_response(
+                content=content,
+                reasoning_content=reasoning_content,
+                request_id=request_id,
+                model_name=model_name,
+                usage=usage,
+            ):
+                raise EmptyAIResponseError(
+                    "Provider returned an empty text response: no content, no reasoning, "
+                    "no request id/model, and zero token usage."
+                )
+            raw = {
+                "id": request_id,
+                "model": model_name,
+                "content": content,
+                "reasoning_content": reasoning_content,
+                "usage": {
+                    "prompt_tokens": 0,
+                    "cached_prompt_tokens": 0,
+                    "cache_miss_tokens": 0,
+                    "cache_hit_rate_pct": 0.0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
+                "latency_ms": latency_ms,
+            }
+            return AIReply(
+                content=content,
+                reasoning_content=reasoning_content,
+                raw=raw,
+                usage=usage,
+                request_id=request_id,
+                latency_ms=latency_ms,
+            )
+
         msg = response.choices[0].message
         content = msg.content or ""
+        _raise_if_html_response(content, base_url=self._settings.base_url)
         reasoning_content = getattr(msg, "reasoning_content", None) or ""
         # MiniMax with reasoning_split=True may also use reasoning_details
         if not reasoning_content:
@@ -465,6 +628,9 @@ class DeepSeekClient:
                     if t:
                         parts.append(t)
                 reasoning_content = "".join(parts)
+        # OpenRouter surfaces reasoning as message.reasoning (string)
+        if not reasoning_content:
+            reasoning_content = getattr(msg, "reasoning", None) or ""
 
         if _is_mimo(self._settings):
             store_reasoning_from_response(
@@ -485,11 +651,24 @@ class DeepSeekClient:
         )
 
         request_id = getattr(response, "id", "") or ""
+        model_name = getattr(response, "model", "") or ""
+
+        if _is_empty_ai_response(
+            content=content,
+            reasoning_content=reasoning_content,
+            request_id=request_id,
+            model_name=model_name,
+            usage=usage,
+        ):
+            raise EmptyAIResponseError(
+                "Provider returned an empty response: no content, no reasoning, "
+                "no request id/model, and zero token usage."
+            )
 
         # Build raw dict for debug tab — mask API key if it somehow appears
         raw: dict[str, Any] = {
             "id": request_id,
-            "model": getattr(response, "model", ""),
+            "model": model_name,
             "content": content,
             "reasoning_content": reasoning_content,
             "usage": {
@@ -572,6 +751,21 @@ class DeepSeekClient:
             self._settings, extra_body=extra_body, effort=_effort
         )
 
+        if self._settings.api_format == "anthropic":
+            from pa_agent.ai.anthropic_compat import anthropic_messages_stream_chat
+
+            return anthropic_messages_stream_chat(
+                self._settings,
+                api_messages,
+                extra_body=extra_body,
+                max_tokens=_max_tokens,
+                on_reasoning_token=on_reasoning_token,
+                on_content_token=on_content_token,
+                cancel_token=cancel_token,
+                timeout_s=timeout_s,
+                logger_=self._log,
+            )
+
         self._log.info(
             "DeepSeekClient.stream_chat: model=%s thinking=%s reasoning_effort=%s "
             "max_tokens=%s system_hoisted=%s msgs=%d",
@@ -586,10 +780,7 @@ class DeepSeekClient:
         if _OpenAI is None:
             raise RuntimeError("openai package is not installed") from _OPENAI_IMPORT_ERROR
 
-        client = _OpenAI(
-            base_url=self._settings.base_url,
-            api_key=self._settings.api_key,
-        )
+        client = _openai_client(self._settings)
 
         t0 = time.monotonic()
         reasoning_content = ""
@@ -631,6 +822,16 @@ class DeepSeekClient:
                 if cancel_token is not None and cancel_token.is_set():
                     raise CancelledError("Request cancelled during streaming")
 
+                raw_chunk_text = _decode_provider_text(chunk)
+                if raw_chunk_text is not None:
+                    _raise_if_html_response(
+                        raw_chunk_text, base_url=self._settings.base_url
+                    )
+                    content += raw_chunk_text
+                    if on_content_token is not None:
+                        on_content_token(raw_chunk_text)
+                    continue
+
                 # Extract usage from the final chunk (stream_options)
                 if hasattr(chunk, "usage") and chunk.usage is not None:
                     u = chunk.usage
@@ -664,6 +865,9 @@ class DeepSeekClient:
                             t = detail.get("text") if isinstance(detail, dict) else getattr(detail, "text", None)
                             if t:
                                 r = (r or "") + t
+                if not r:
+                    # OpenRouter streaming: reasoning arrives as delta.reasoning (string)
+                    r = getattr(delta, "reasoning", None)
                 if r:
                     reasoning_content += r
                     if on_reasoning_token is not None:
@@ -688,6 +892,128 @@ class DeepSeekClient:
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
         )
+
+        _raise_if_html_response(content, base_url=self._settings.base_url)
+
+        if _is_empty_ai_response(
+            content=content,
+            reasoning_content=reasoning_content,
+            request_id=request_id,
+            model_name=model_name,
+            usage=usage,
+        ):
+            self._log.warning(
+                "Provider returned an empty stream; retrying once without stream_options"
+            )
+            reasoning_content = ""
+            content = ""
+            request_id = ""
+            model_name = ""
+            prompt_tokens = 0
+            completion_tokens = 0
+            total_tokens = 0
+            cached_tokens = 0
+
+            simple_stream_kwargs: dict[str, Any] = {
+                "model": _effective_api_model(self._settings),
+                "messages": api_messages,
+                "timeout": timeout_s,
+                "max_tokens": _max_tokens,
+                "stream": True,
+            }
+            if extra_body:
+                simple_stream_kwargs["extra_body"] = extra_body
+            if _effort is not None:
+                simple_stream_kwargs["reasoning_effort"] = _effort
+
+            try:
+                simple_stream = client.chat.completions.create(**simple_stream_kwargs)
+                for chunk in simple_stream:
+                    if cancel_token is not None and cancel_token.is_set():
+                        raise CancelledError("Request cancelled during streaming")
+
+                    raw_chunk_text = _decode_provider_text(chunk)
+                    if raw_chunk_text is not None:
+                        _raise_if_html_response(
+                            raw_chunk_text, base_url=self._settings.base_url
+                        )
+                        content += raw_chunk_text
+                        if on_content_token is not None:
+                            on_content_token(raw_chunk_text)
+                        continue
+
+                    if hasattr(chunk, "usage") and chunk.usage is not None:
+                        u = chunk.usage
+                        prompt_tokens = getattr(u, "prompt_tokens", 0) or prompt_tokens
+                        completion_tokens = getattr(u, "completion_tokens", 0) or completion_tokens
+                        total_tokens = getattr(u, "total_tokens", 0) or total_tokens
+                        details = getattr(u, "prompt_tokens_details", None)
+                        cached_tokens = getattr(details, "cached_tokens", 0) if details else cached_tokens
+
+                    if not getattr(chunk, "choices", None):
+                        continue
+
+                    request_id = request_id or (getattr(chunk, "id", "") or "")
+                    model_name = model_name or (getattr(chunk, "model", "") or "")
+                    choice0 = chunk.choices[0]
+                    delta = getattr(choice0, "delta", None)
+                    if delta is None:
+                        continue
+
+                    r = getattr(delta, "reasoning_content", None)
+                    if not r:
+                        details = getattr(delta, "reasoning_details", None)
+                        if details:
+                            for detail in details:
+                                t = detail.get("text") if isinstance(detail, dict) else getattr(detail, "text", None)
+                                if t:
+                                    r = (r or "") + t
+                    if not r:
+                        r = getattr(delta, "reasoning", None)
+                    if r:
+                        reasoning_content += r
+                        if on_reasoning_token is not None:
+                            on_reasoning_token(r)
+                    elif delta.content:
+                        content += delta.content
+                        if on_content_token is not None:
+                            on_content_token(delta.content)
+            except CancelledError:
+                raise
+            except Exception as exc:
+                self._log.warning("Simplified stream retry failed: %s", exc)
+
+            usage = AIUsage(
+                prompt_tokens=prompt_tokens,
+                cached_prompt_tokens=cached_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+            )
+
+        _raise_if_html_response(content, base_url=self._settings.base_url)
+
+        if _is_empty_ai_response(
+            content=content,
+            reasoning_content=reasoning_content,
+            request_id=request_id,
+            model_name=model_name,
+            usage=usage,
+        ):
+            self._log.warning(
+                "Provider returned empty streams; retrying once with non-stream chat"
+            )
+            fallback = self.chat(
+                messages,
+                thinking=thinking,
+                reasoning_effort=reasoning_effort,
+                cancel_token=cancel_token,
+                timeout_s=timeout_s,
+            )
+            if fallback.reasoning_content and on_reasoning_token is not None:
+                on_reasoning_token(fallback.reasoning_content)
+            if fallback.content and on_content_token is not None:
+                on_content_token(fallback.content)
+            return fallback
 
         raw: dict[str, Any] = {
             "id": request_id,

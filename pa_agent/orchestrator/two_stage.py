@@ -1089,10 +1089,16 @@ class TwoStageOrchestrator:
     @staticmethod
     def _is_network_error(exc: Exception) -> bool:
         """Return True if *exc* is a network/timeout error (SDK, httpx, or OS reset)."""
-        from pa_agent.ai.deepseek_client import CancelledError
+        from pa_agent.ai.deepseek_client import (
+            CancelledError,
+            EmptyAIResponseError,
+            ProviderEndpointError,
+        )
 
         if isinstance(exc, CancelledError):
             return False
+        if isinstance(exc, (EmptyAIResponseError, ProviderEndpointError)):
+            return True
 
         try:
             import openai  # type: ignore[import]

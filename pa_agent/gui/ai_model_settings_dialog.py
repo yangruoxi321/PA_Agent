@@ -63,6 +63,16 @@ class AIModelSettingsDialog(QDialog):
         self._base_url_edit = QLineEdit()
         form.addRow("Base URL:", self._base_url_edit)
 
+        self._api_format_combo = QComboBox()
+        self._api_format_combo.addItem("OpenAI 兼容 (/chat/completions)", "openai")
+        self._api_format_combo.addItem("Anthropic (/messages)", "anthropic")
+        self._api_format_combo.setToolTip(
+            "选择供应商使用的接口协议。\n"
+            "• OpenAI：DeepSeek、PackyAPI 等大多数中转站\n"
+            "• Anthropic：NekoCode 等走 /v1/messages 的 Claude 网关"
+        )
+        form.addRow("API 格式:", self._api_format_combo)
+
         api_key_row = QHBoxLayout()
         self._api_key_edit = QLineEdit()
         self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Normal)
@@ -117,6 +127,9 @@ class AIModelSettingsDialog(QDialog):
         p = self._settings.provider
         self._model_edit.setText(p.model)
         self._base_url_edit.setText(p.base_url)
+        fmt_idx = self._api_format_combo.findData(getattr(p, "api_format", "openai"))
+        if fmt_idx >= 0:
+            self._api_format_combo.setCurrentIndex(fmt_idx)
         self._api_key_edit.setText(p.api_key)
         self._thinking_check.setChecked(p.thinking)
         idx = self._reasoning_effort_combo.findText(p.reasoning_effort)
@@ -146,6 +159,7 @@ class AIModelSettingsDialog(QDialog):
                 return
             p.model = model
             p.base_url = base_url
+            p.api_format = self._api_format_combo.currentData()  # type: ignore[assignment]
             p.api_key = self._api_key_edit.text()
             p.thinking = self._thinking_check.isChecked()
             p.reasoning_effort = self._reasoning_effort_combo.currentText()  # type: ignore[assignment]
