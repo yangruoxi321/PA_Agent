@@ -21,6 +21,36 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _ANTHROPIC_VERSION = "2023-06-01"
+_STREAM_RETRY_ATTEMPTS = 3
+_STREAM_RETRY_BACKOFF_S = 2.0
+
+
+def _httpx_timeout(timeout_s: float) -> Any:
+    import httpx
+
+    read_s = max(60.0, float(timeout_s))
+    return httpx.Timeout(connect=60.0, read=read_s, write=120.0, pool=60.0)
+
+
+def _is_transient_httpx_error(exc: BaseException) -> bool:
+    try:
+        import httpx
+    except ImportError:
+        return False
+    if isinstance(
+        exc,
+        (
+            httpx.ReadError,
+            httpx.ConnectError,
+            httpx.TimeoutException,
+            httpx.RemoteProtocolError,
+            httpx.WriteError,
+            httpx.NetworkError,
+        ),
+    ):
+        return True
+    cause = exc.__cause__
+    return cause is not None and cause is not exc and _is_transient_httpx_error(cause)
 
 
 def anthropic_messages_endpoint(base_url: str) -> str:
@@ -116,6 +146,14 @@ def _build_request_body(
         body["system"] = system_param
     thinking = extra_body.get("thinking")
     if isinstance(thinking, dict) and thinking:
+        thinking = dict(thinking)
+        if thinking.get("type") == "enabled":
+            raw_budget = thinking.get("budget_tokens")
+            if raw_budget is not None:
+                thinking["budget_tokens"] = min(
+                    int(raw_budget),
+                    max(1024, int(max_tokens) - 1),
+                )
         body["thinking"] = thinking
     if stream:
         body["stream"] = True
@@ -132,22 +170,22 @@ def _decode_response_text(response: Any) -> str:
     return str(content)
 
 
-def anthropic_messages_chat(
+def _anthropic_messages_chat_once(
     settings: AIProviderSettings,
     messages: list[dict[str, Any]],
     *,
     extra_body: dict[str, Any],
     max_tokens: int,
-    cancel_token: "CancelToken | None" = None,
-    timeout_s: float = 600.0,
-    logger_: logging.Logger | None = None,
+    cancel_token: "CancelToken | None",
+    timeout_s: float,
+    logger_: logging.Logger | None,
 ) -> AIReply:
-    if cancel_token is not None and cancel_token.is_set():
-        raise CancelledError("Request cancelled before API call")
-
     import httpx
 
     log = logger_ or logger
+    if cancel_token is not None and cancel_token.is_set():
+        raise CancelledError("Request cancelled before API call")
+
     api_messages, system_param = _prepare_anthropic_messages(messages)
     url = anthropic_messages_endpoint(settings.base_url)
     body = _build_request_body(
@@ -169,18 +207,12 @@ def anthropic_messages_chat(
     )
 
     t0 = time.monotonic()
-    try:
-        response = httpx.post(
-            url,
-            headers=_anthropic_headers(settings.api_key),
-            json=body,
-            timeout=timeout_s,
-        )
-    except Exception as exc:
-        latency_ms = (time.monotonic() - t0) * 1000
-        log.error("anthropic_messages_chat error after %.0f ms: %s", latency_ms, exc)
-        raise
-
+    response = httpx.post(
+        url,
+        headers=_anthropic_headers(settings.api_key),
+        json=body,
+        timeout=_httpx_timeout(timeout_s),
+    )
     latency_ms = (time.monotonic() - t0) * 1000
     raw_text = _decode_response_text(response)
     _raise_if_html_payload(raw_text, base_url=settings.base_url)
@@ -220,6 +252,50 @@ def anthropic_messages_chat(
         request_id=request_id,
         latency_ms=latency_ms,
     )
+
+
+def anthropic_messages_chat(
+    settings: AIProviderSettings,
+    messages: list[dict[str, Any]],
+    *,
+    extra_body: dict[str, Any],
+    max_tokens: int,
+    cancel_token: "CancelToken | None" = None,
+    timeout_s: float = 600.0,
+    logger_: logging.Logger | None = None,
+) -> AIReply:
+    log = logger_ or logger
+    last_exc: Exception | None = None
+    for attempt in range(_STREAM_RETRY_ATTEMPTS):
+        try:
+            return _anthropic_messages_chat_once(
+                settings,
+                messages,
+                extra_body=extra_body,
+                max_tokens=max_tokens,
+                cancel_token=cancel_token,
+                timeout_s=timeout_s,
+                logger_=log,
+            )
+        except CancelledError:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if not _is_transient_httpx_error(exc) or attempt >= _STREAM_RETRY_ATTEMPTS - 1:
+                log.error("anthropic_messages_chat failed: %s", exc)
+                raise
+            wait_s = _STREAM_RETRY_BACKOFF_S * (2**attempt)
+            log.warning(
+                "anthropic_messages_chat transient error (attempt %d/%d): %s; retry in %.1fs",
+                attempt + 1,
+                _STREAM_RETRY_ATTEMPTS,
+                exc,
+                wait_s,
+            )
+            time.sleep(wait_s)
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("anthropic_messages_chat failed without exception")
 
 
 def _handle_anthropic_stream_event(
@@ -265,24 +341,23 @@ def _handle_anthropic_stream_event(
     return content, reasoning_content, request_id, model_name, usage
 
 
-def anthropic_messages_stream_chat(
+def _anthropic_messages_stream_chat_once(
     settings: AIProviderSettings,
     messages: list[dict[str, Any]],
     *,
     extra_body: dict[str, Any],
     max_tokens: int,
-    on_reasoning_token: Callable[[str], None] | None = None,
-    on_content_token: Callable[[str], None] | None = None,
-    cancel_token: "CancelToken | None" = None,
-    timeout_s: float = 600.0,
-    logger_: logging.Logger | None = None,
+    on_reasoning_token: Callable[[str], None] | None,
+    on_content_token: Callable[[str], None] | None,
+    cancel_token: "CancelToken | None",
+    timeout_s: float,
+    logger_: logging.Logger | None,
 ) -> AIReply:
-    if cancel_token is not None and cancel_token.is_set():
-        raise CancelledError("Request cancelled before API call")
-
     import httpx
 
     log = logger_ or logger
+    if cancel_token is not None and cancel_token.is_set():
+        raise CancelledError("Request cancelled before API call")
     api_messages, system_param = _prepare_anthropic_messages(messages)
     url = anthropic_messages_endpoint(settings.base_url)
     body = _build_request_body(
@@ -315,7 +390,7 @@ def anthropic_messages_stream_chat(
             url,
             headers=_anthropic_headers(settings.api_key),
             json=body,
-            timeout=timeout_s,
+            timeout=_httpx_timeout(timeout_s),
         ) as response:
             if response.status_code >= 400:
                 raw_text = _decode_response_text(response)
@@ -355,14 +430,6 @@ def anthropic_messages_stream_chat(
                 )
     except CancelledError:
         raise
-    except Exception as exc:
-        latency_ms = (time.monotonic() - t0) * 1000
-        log.error(
-            "anthropic_messages_stream_chat error after %.0f ms: %s",
-            latency_ms,
-            exc,
-        )
-        raise
 
     latency_ms = (time.monotonic() - t0) * 1000
     _raise_if_html_payload(content, base_url=settings.base_url)
@@ -399,3 +466,66 @@ def anthropic_messages_stream_chat(
         request_id=request_id,
         latency_ms=latency_ms,
     )
+
+
+def anthropic_messages_stream_chat(
+    settings: AIProviderSettings,
+    messages: list[dict[str, Any]],
+    *,
+    extra_body: dict[str, Any],
+    max_tokens: int,
+    on_reasoning_token: Callable[[str], None] | None = None,
+    on_content_token: Callable[[str], None] | None = None,
+    cancel_token: "CancelToken | None" = None,
+    timeout_s: float = 600.0,
+    logger_: logging.Logger | None = None,
+) -> AIReply:
+    log = logger_ or logger
+    last_exc: Exception | None = None
+    for attempt in range(_STREAM_RETRY_ATTEMPTS):
+        try:
+            return _anthropic_messages_stream_chat_once(
+                settings,
+                messages,
+                extra_body=extra_body,
+                max_tokens=max_tokens,
+                on_reasoning_token=on_reasoning_token,
+                on_content_token=on_content_token,
+                cancel_token=cancel_token,
+                timeout_s=timeout_s,
+                logger_=log,
+            )
+        except CancelledError:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if not _is_transient_httpx_error(exc) or attempt >= _STREAM_RETRY_ATTEMPTS - 1:
+                break
+            wait_s = _STREAM_RETRY_BACKOFF_S * (2**attempt)
+            log.warning(
+                "anthropic stream transient error (attempt %d/%d): %s; retry in %.1fs",
+                attempt + 1,
+                _STREAM_RETRY_ATTEMPTS,
+                exc,
+                wait_s,
+            )
+            time.sleep(wait_s)
+
+    log.warning(
+        "anthropic stream failed after retries (%s); falling back to non-stream chat",
+        last_exc,
+    )
+    fallback = anthropic_messages_chat(
+        settings,
+        messages,
+        extra_body=extra_body,
+        max_tokens=max_tokens,
+        cancel_token=cancel_token,
+        timeout_s=timeout_s,
+        logger_=log,
+    )
+    if fallback.reasoning_content and on_reasoning_token is not None:
+        on_reasoning_token(fallback.reasoning_content)
+    if fallback.content and on_content_token is not None:
+        on_content_token(fallback.content)
+    return fallback

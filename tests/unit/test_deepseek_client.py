@@ -88,7 +88,7 @@ def test_completion_max_tokens_deepseek_cap():
     settings = _make_settings()
     settings.base_url = "https://api.deepseek.com"
     settings.model = "deepseek-v4-pro"
-    assert _completion_max_tokens(settings, extra_body={}, effort="max") == 393_216
+    assert _completion_max_tokens(settings, extra_body={}, effort="max") == 128_000
 
 
 def test_completion_max_tokens_packy_claude_cap():
