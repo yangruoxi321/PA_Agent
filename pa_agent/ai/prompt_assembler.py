@@ -842,10 +842,34 @@ class PromptAssembler:
         experience_reader: Any = None,
         *,
         prompt_settings: Any = None,
+        fundamental_provider: Any = None,
     ) -> None:
         self._prompt_dir = prompt_dir
         self._experience_reader = experience_reader
         self._prompt_settings = prompt_settings
+        self._fundamental_provider = fundamental_provider
+
+    def _fundamental_context_block(self, frame: Any) -> str:
+        """构建多维上下文块；无 provider/开关关闭/异常都返回 ""，永不抛。
+
+        该块附加在阶段一 user prompt 的几何特征表之后，仅当非空才注入；
+        绝不放入被进程级缓存的 system prompt。
+        """
+        provider = self._fundamental_provider
+        if provider is None:
+            return ""
+        settings = self._prompt_settings
+        if settings is not None and not getattr(
+            settings, "enable_fundamental_context", True
+        ):
+            return ""
+        try:
+            symbol = getattr(frame, "symbol", "") or ""
+            text = provider.build_for_symbol(symbol, settings=settings, frame=frame)
+            return text or ""
+        except Exception:  # noqa: BLE001 — 永不向主流程抛
+            logger.warning("fundamental context block failed", exc_info=True)
+            return ""
 
     def _load_full_strategy_library(self) -> bool:
         cfg = self._prompt_settings
@@ -1208,6 +1232,7 @@ class PromptAssembler:
         stage1_context = "\n\n---\n\n".join(p for p in stage1_parts if p)
         kline_table = self._render_kline_table(frame)
         feature_table = self._render_kline_feature_table(frame)
+        fundamental_block = self._fundamental_context_block(frame)
         n_bars = len(frame.bars)
         return (
             "## 阶段一任务\n\n"
@@ -1239,6 +1264,7 @@ class PromptAssembler:
             "基于当前 N 根已收盘 K 线，指标非全历史延续)\n\n"
             f"{feature_table}\n\n"
             + (f"{prefill_hint}\n\n" if prefill_hint else "")
+            + (f"{fundamental_block}\n\n" if fundamental_block else "")
             + f"请根据以上数据，严格输出阶段一 JSON 诊断结果。\n\n"
             f"{_STAGE1_TAIL_REMINDER}"
         )
@@ -1267,6 +1293,7 @@ class PromptAssembler:
         new_feature_table = self._render_kline_feature_table(frame, limit=new_count)
         full_kline_table = self._render_kline_table(frame)
         full_feature_table = self._render_kline_feature_table(frame)
+        fundamental_block = self._fundamental_context_block(frame)
         previous_summary = {
             "meta": previous_record.meta.model_dump(),
             "stage1_diagnosis": previous_record.stage1_diagnosis or {},
@@ -1309,6 +1336,7 @@ class PromptAssembler:
             f"基于当前 N 根已收盘 K 线，指标非全历史延续)\n\n"
             f"{full_feature_table}\n\n"
             + (f"{prefill_hint}\n\n" if prefill_hint else "")
+            + (f"{fundamental_block}\n\n" if fundamental_block else "")
             + "请基于上一轮结论、新增K线和当前完整K线，严格输出更新后的阶段一 JSON 诊断结果。\n\n"
             f"{_STAGE1_TAIL_REMINDER}"
         )
@@ -1336,6 +1364,7 @@ class PromptAssembler:
         new_count = max(0, min(new_bar_count, n_bars))
         new_kline_table = self._render_kline_table(frame, limit=new_count)
         new_feature_table = self._render_kline_feature_table(frame, limit=new_count)
+        fundamental_block = self._fundamental_context_block(frame)
         previous_summary = {
             "meta": previous_record.meta.model_dump(),
             "stage1_diagnosis": previous_record.stage1_diagnosis or {},
@@ -1379,6 +1408,7 @@ class PromptAssembler:
             f"与前棒重叠/内包/ioi 以完整表为准)\n\n"
             f"{new_feature_table}\n\n"
             + (f"{prefill_hint}\n\n" if prefill_hint else "")
+            + (f"{fundamental_block}\n\n" if fundamental_block else "")
             + "请基于上方完整K线数据、上一轮结论和新增K线，严格输出更新后的阶段一 JSON 诊断结果。\n\n"
             f"{_STAGE1_TAIL_REMINDER}"
         )

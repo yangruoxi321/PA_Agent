@@ -36,6 +36,24 @@ class PromptSettings(BaseModel):
     #: Inject pattern判定表 + 速查 brief into Stage 1 user prompt (reduces missed tags).
     stage1_inject_pattern_briefs: bool = True
 
+    # ── 多维上下文（基本面/资金面/宏观/情绪）──────────────────────────────
+    #: 总开关：是否在阶段一注入多维上下文。
+    enable_fundamental_context: bool = True
+    #: 新闻维度（Phase 2），默认关。
+    fundamental_include_news: bool = False
+    #: 宏观快照维度。
+    fundamental_include_macro: bool = True
+    #: 分析师评级/情绪维度。
+    fundamental_include_sentiment: bool = True
+    #: 资金面维度（量价 + 机构/做空）。
+    fundamental_include_flow: bool = True
+    #: 新闻最多条数。
+    fundamental_news_max_items: int = Field(default=3, ge=0, le=10)
+    #: 量价相对均量计算窗口（K 线根数）。
+    fundamental_flow_avg_window: int = Field(default=20, ge=2, le=200)
+    #: 基本面缓存 TTL（分钟）。
+    fundamental_cache_ttl_minutes: int = Field(default=360, ge=1, le=1440)
+
 
 class ValidationSettings(BaseModel):
     """Post-LLM validation behaviour."""

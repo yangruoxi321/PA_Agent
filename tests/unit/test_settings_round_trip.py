@@ -107,3 +107,45 @@ def test_migrate_legacy_feishu_json(tmp_path):
     assert loaded.feishu.app_id == "cli_legacy"
     data = json.loads(p.read_text(encoding="utf-8"))
     assert data["feishu"]["webhook_url"] == "https://example.com/legacy-hook"
+
+
+def test_fundamental_context_defaults():
+    """新增多维上下文字段的默认值。"""
+    s = Settings()
+    p = s.prompt
+    assert p.enable_fundamental_context is True
+    assert p.fundamental_include_news is False
+    assert p.fundamental_include_macro is True
+    assert p.fundamental_include_sentiment is True
+    assert p.fundamental_include_flow is True
+    assert p.fundamental_news_max_items == 3
+    assert p.fundamental_flow_avg_window == 20
+    assert p.fundamental_cache_ttl_minutes == 360
+
+
+def test_old_settings_without_fundamental_fields_loads(tmp_path):
+    """旧 settings.json 缺少新字段时不报错，使用默认值。"""
+    p = tmp_path / "settings.json"
+    data = Settings().model_dump()
+    # 模拟旧文件：移除所有 fundamental_* 与总开关
+    for key in list(data["prompt"].keys()):
+        if key.startswith("fundamental_") or key == "enable_fundamental_context":
+            data["prompt"].pop(key, None)
+    p.write_text(json.dumps(data), encoding="utf-8")
+    s = load_settings(p)
+    assert s.prompt.enable_fundamental_context is True
+    assert s.prompt.fundamental_flow_avg_window == 20
+
+
+def test_fundamental_fields_round_trip(tmp_path):
+    """save → load 保留多维上下文开关。"""
+    p = tmp_path / "settings.json"
+    original = Settings()
+    original.prompt.enable_fundamental_context = False
+    original.prompt.fundamental_include_macro = False
+    original.prompt.fundamental_flow_avg_window = 30
+    save_settings(original, p)
+    loaded = load_settings(p)
+    assert loaded.prompt.enable_fundamental_context is False
+    assert loaded.prompt.fundamental_include_macro is False
+    assert loaded.prompt.fundamental_flow_avg_window == 30

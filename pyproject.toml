@@ -31,6 +31,9 @@ ashare = [
     "baostock>=0.8",
     "curl_cffi>=0.13",
 ]
+equity = [
+    "yfinance>=0.2.40",
+]
 dev = [
     "pytest>=8",
     "pytest-qt>=4.4",

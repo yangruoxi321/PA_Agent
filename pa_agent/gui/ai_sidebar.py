@@ -11,6 +11,7 @@ from pa_agent.gui.decision_panel import DecisionPanel
 from pa_agent.gui.decision_flow_viz import DecisionFlowVizPanel
 from pa_agent.gui.decision_tree_panel import DecisionTreePanel
 from pa_agent.gui.future_trend_panel import FutureTrendPanel
+from pa_agent.gui.fundamental_panel import FundamentalPanel
 from pa_agent.gui.prompt_files_panel import PromptFilesPanel
 
 if TYPE_CHECKING:
@@ -36,6 +37,7 @@ class AISidebar(QWidget):
         self.decision_tree = DecisionTreePanel()
         self.decision_flow_viz = DecisionFlowVizPanel()
         self.future_trend = FutureTrendPanel()
+        self.fundamental = FundamentalPanel()
 
         self._tabs.addTab(self.stream, "实时")
         self._tabs.addTab(self.decision_tree, "决策树")
@@ -44,6 +46,7 @@ class AISidebar(QWidget):
         self._tabs.addTab(self.future_trend, "未来走势预期")
         self._tabs.addTab(self.debug, "原始")
         self._tabs.addTab(self.prompt_files, "调试")
+        self._tabs.addTab(self.fundamental, "基本面")
 
         if settings is not None:
             self.bind_settings(settings)
@@ -59,6 +62,11 @@ class AISidebar(QWidget):
     TAB_FUTURE_TREND = 4   # new
     TAB_RAW = 5            # was 4
     TAB_DEBUG = 6          # was 5
+    TAB_FUNDAMENTAL = 7    # 基本面
+
+    def focus_fundamental(self) -> None:
+        """Switch to the fundamental context tab (基本面)."""
+        self._tabs.setCurrentIndex(self.TAB_FUNDAMENTAL)
 
     def focus_stream(self) -> None:
         """Switch to the live AI output tab (index 0)."""
@@ -83,3 +91,4 @@ class AISidebar(QWidget):
     def bind_settings(self, settings: Optional["Settings"]) -> None:
         self.stream.bind_settings(settings)
         self.decision_flow_viz.bind_settings(settings)
+        self.fundamental.bind_settings(settings)

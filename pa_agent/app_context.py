@@ -101,10 +101,13 @@ class AppContext:
 
         # ── Prompt assembler ──────────────────────────────────────────────────
         exp_reader = ExperienceReader(experience_dir=EXPERIENCE_DIR, logger=app_logger)
+        from pa_agent.context import fundamental_context
+
         assembler = PromptAssembler(
             prompt_dir=PROMPT_DIR,
             experience_reader=exp_reader,
             prompt_settings=settings.prompt,
+            fundamental_provider=fundamental_context,
         )
 
         # ── Validator & router ────────────────────────────────────────────────

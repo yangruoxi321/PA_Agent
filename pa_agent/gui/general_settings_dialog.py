@@ -1,4 +1,5 @@
 """通用设置对话框 — 包含交易决策、图表显示、分析行为等通用字段."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -65,7 +66,9 @@ class GeneralSettingsDialog(QDialog):
         self._decision_stance_combo.addItem("保守", "conservative")
         self._decision_stance_combo.addItem("均衡（默认，比保守更愿意下单）", "balanced")
         self._decision_stance_combo.addItem("激进（比均衡更愿意下单）", "aggressive")
-        self._decision_stance_combo.addItem("极度激进（强制选方向与进场方式）", "extreme_aggressive")
+        self._decision_stance_combo.addItem(
+            "极度激进（强制选方向与进场方式）", "extreme_aggressive"
+        )
         self._decision_stance_combo.setToolTip(
             "仅影响阶段二交易决策倾向；保守与改版前一致。\n"
             "均衡、激进逐级提高下单意愿；极度激进在未触犯 §14 硬性禁止时\n"
@@ -185,9 +188,50 @@ class GeneralSettingsDialog(QDialog):
 
         form_layout.addWidget(flow_group)
 
+        # ── 多维上下文（基本面/资金面/宏观/情绪）──────────────────────────────
+        fund_group = QGroupBox("多维上下文（基本面/宏观/情绪）")
+        fund_form = QFormLayout(fund_group)
+
+        self._fund_enable_check = QCheckBox("在阶段一注入基本面/资金面/宏观/情绪")
+        self._fund_enable_check.setToolTip(
+            "总开关。港股/美股注入基本面+分析师+机构/做空，所有市场注入量价与宏观。"
+            "关闭后完全不影响原有 K 线分析。"
+        )
+        fund_form.addRow("启用:", self._fund_enable_check)
+
+        self._fund_macro_check = QCheckBox("宏观环境快照（指数/利率/美元/VIX）")
+        fund_form.addRow("宏观:", self._fund_macro_check)
+
+        self._fund_sentiment_check = QCheckBox("分析师评级/目标价")
+        fund_form.addRow("情绪:", self._fund_sentiment_check)
+
+        self._fund_flow_check = QCheckBox("资金面（量价 + 机构/做空）")
+        fund_form.addRow("资金面:", self._fund_flow_check)
+
+        self._fund_news_check = QCheckBox("近期新闻标题（消耗额外抓取）")
+        fund_form.addRow("新闻:", self._fund_news_check)
+
+        self._fund_news_max_spin = QSpinBox()
+        self._fund_news_max_spin.setRange(0, 10)
+        self._fund_news_max_spin.setSuffix(" 条")
+        fund_form.addRow("新闻条数:", self._fund_news_max_spin)
+
+        self._fund_flow_window_spin = QSpinBox()
+        self._fund_flow_window_spin.setRange(2, 200)
+        self._fund_flow_window_spin.setSuffix(" 根")
+        self._fund_flow_window_spin.setToolTip("相对均量计算窗口（K 线根数）")
+        fund_form.addRow("均量窗口:", self._fund_flow_window_spin)
+
+        self._fund_cache_ttl_spin = QSpinBox()
+        self._fund_cache_ttl_spin.setRange(1, 1440)
+        self._fund_cache_ttl_spin.setSuffix(" 分钟")
+        self._fund_cache_ttl_spin.setToolTip("基本面缓存有效期，避免重复打网")
+        fund_form.addRow("缓存有效期:", self._fund_cache_ttl_spin)
+
+        form_layout.addWidget(fund_group)
+
         buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save
-            | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
         save_btn = buttons.button(QDialogButtonBox.StandardButton.Save)
         if save_btn:
@@ -211,9 +255,7 @@ class GeneralSettingsDialog(QDialog):
         if idx >= 0:
             self._decision_stance_combo.setCurrentIndex(idx)
         self._alert_on_order_check.blockSignals(True)
-        self._alert_on_order_check.setChecked(
-            bool(getattr(g, "alert_on_order_opportunity", True))
-        )
+        self._alert_on_order_check.setChecked(bool(getattr(g, "alert_on_order_opportunity", True)))
         self._alert_on_order_check.blockSignals(False)
         self._enable_next_bar_check.blockSignals(True)
         self._enable_next_bar_check.setChecked(
@@ -240,15 +282,23 @@ class GeneralSettingsDialog(QDialog):
         self._stream_font_spin.setValue(int(getattr(g, "stream_pane_font_pt", 11)))
         self._chart_seq_font_spin.setValue(int(getattr(g, "chart_seq_label_font_pt", 7)))
 
-        self._flow_auto_play_check.setChecked(
-            getattr(g, "decision_flow_auto_play", False)
-        )
-        self._flow_play_seconds_spin.setValue(
-            getattr(g, "decision_flow_play_seconds", 50)
-        )
+        self._flow_auto_play_check.setChecked(getattr(g, "decision_flow_auto_play", False))
+        self._flow_play_seconds_spin.setValue(getattr(g, "decision_flow_play_seconds", 50))
         self._flow_default_zoom_spin.setValue(
             int(getattr(g, "decision_flow_default_zoom_pct", 500))
         )
+
+        p = self._settings.prompt
+        self._fund_enable_check.setChecked(bool(getattr(p, "enable_fundamental_context", True)))
+        self._fund_macro_check.setChecked(bool(getattr(p, "fundamental_include_macro", True)))
+        self._fund_sentiment_check.setChecked(
+            bool(getattr(p, "fundamental_include_sentiment", True))
+        )
+        self._fund_flow_check.setChecked(bool(getattr(p, "fundamental_include_flow", True)))
+        self._fund_news_check.setChecked(bool(getattr(p, "fundamental_include_news", False)))
+        self._fund_news_max_spin.setValue(int(getattr(p, "fundamental_news_max_items", 3)))
+        self._fund_flow_window_spin.setValue(int(getattr(p, "fundamental_flow_avg_window", 20)))
+        self._fund_cache_ttl_spin.setValue(int(getattr(p, "fundamental_cache_ttl_minutes", 360)))
 
     def _on_save(self) -> None:
         g = self._settings.general
@@ -274,6 +324,16 @@ class GeneralSettingsDialog(QDialog):
         g.decision_flow_play_seconds = self._flow_play_seconds_spin.value()
         g.decision_flow_default_zoom_pct = self._flow_default_zoom_spin.value()
 
+        p = self._settings.prompt
+        p.enable_fundamental_context = self._fund_enable_check.isChecked()
+        p.fundamental_include_macro = self._fund_macro_check.isChecked()
+        p.fundamental_include_sentiment = self._fund_sentiment_check.isChecked()
+        p.fundamental_include_flow = self._fund_flow_check.isChecked()
+        p.fundamental_include_news = self._fund_news_check.isChecked()
+        p.fundamental_news_max_items = self._fund_news_max_spin.value()
+        p.fundamental_flow_avg_window = self._fund_flow_window_spin.value()
+        p.fundamental_cache_ttl_minutes = self._fund_cache_ttl_spin.value()
+
         save_settings(self._settings, SETTINGS_JSON_PATH)
         self.accept()
 
@@ -286,12 +346,15 @@ class GeneralSettingsDialog(QDialog):
         if not self._alert_on_order_check.isChecked():
             return
         from pa_agent.gui.order_opportunity import play_order_alert_sound
+
         play_order_alert_sound()
 
     def _on_enable_next_bar_changed(self, state: int) -> None:
         from PyQt6.QtCore import Qt as _Qt
+
         if state == _Qt.CheckState.Checked.value:
             from PyQt6.QtWidgets import QMessageBox as _MB
+
             _MB.information(
                 self,
                 "下根K线预期",

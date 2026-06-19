@@ -3531,6 +3531,16 @@ class MainWindow(QMainWindow):
                 experience_count=len(experience),
             )
 
+        fundamental = getattr(self._ai_sidebar, "fundamental", None)
+        if fundamental is not None:
+            try:
+                meta = getattr(record, "meta", None)
+                symbol = getattr(meta, "symbol", "") if meta is not None else ""
+                if symbol:
+                    fundamental.update_for_symbol(symbol)
+            except Exception:  # noqa
+                pass
+
         s1_diag = getattr(record, "stage1_diagnosis", None) or {}
         self._last_analysis_record = record
         self._last_stage1_diagnosis = s1_diag if isinstance(s1_diag, dict) else None
