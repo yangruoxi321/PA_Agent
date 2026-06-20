@@ -281,6 +281,24 @@ STAGE1_SCHEMA: dict = {
             "type": "array",
             "items": _NODE_OVERRIDE_ITEM,
         },
+        # 基本面/资金面/宏观与技术方向的交叉验证。可选：仅当提示提供了多维上下文
+        # 时填写；外汇/无数据时省略或 stance="na"。不进 required，不影响降级。
+        "context_assessment": {
+            "type": ["object", "null"],
+            "properties": {
+                "stance": {
+                    "type": "string",
+                    "enum": ["confirms", "diverges", "neutral", "na"],
+                },
+                "confidence_adjustment": {
+                    "type": "integer",
+                    "minimum": -20,
+                    "maximum": 20,
+                },
+                "note": {"type": "string"},
+            },
+            "additionalProperties": True,
+        },
     },
     "allOf": [
         # spike only requires spike_stage (micro_channel may keep spike_stage null)

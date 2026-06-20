@@ -693,6 +693,17 @@ class MainWindow(QMainWindow):
         logger.info("RefreshLoop started for %s %s",
                     getattr(data_source, "_symbol", "?"),
                     getattr(data_source, "_timeframe", "?"))
+
+        # 获取数据时一并后台预抓基本面/宏观/情绪并暖好缓存：
+        # 「基本面」标签立即可见，且分析阶段命中缓存、不再额外等待抓取。
+        try:
+            self._sync_fundamental_exchange()
+            fundamental = getattr(self._ai_sidebar, "fundamental", None)
+            sym = str(getattr(data_source, "_symbol", "") or "").strip()
+            if fundamental is not None and sym:
+                fundamental.update_for_symbol(sym, self._market_exchange_for_context())
+        except Exception:  # noqa: BLE001 — 预抓失败绝不影响数据刷新
+            logger.debug("fundamental prefetch on refresh start failed", exc_info=True)
         self._update_symbol_data_alert()
 
     def _stop_refresh_loop(self) -> None:
@@ -894,6 +905,24 @@ class MainWindow(QMainWindow):
             return ""
         return text.upper()
 
+    def _market_exchange_for_context(self) -> str:
+        """供「多维上下文」交易所优先判定用的交易所；仅 TradingView 有意义。
+
+        其他数据源(MT5 等)无交易所概念，返回 "" → 回退到按代码判定市场。
+        """
+        if self._current_data_source_kind() != "tradingview":
+            return ""
+        return self._tv_exchange_text()
+
+    def _sync_fundamental_exchange(self) -> None:
+        """把当前交易所同步给 PromptAssembler，供阶段一注入时交易所优先判定。"""
+        try:
+            assembler = getattr(self._ctx, "assembler", None)
+            if assembler is not None:
+                assembler.current_exchange = self._market_exchange_for_context()
+        except Exception:  # noqa: BLE001
+            pass
+
     def _sync_tv_exchange_visibility(self) -> None:
         """Show exchange field only for TradingView, allow manual selection."""
         visible = (
@@ -987,6 +1016,7 @@ class MainWindow(QMainWindow):
         logger.info("TV exchange changed → %r (raw combo data=%r)",
                      ex_val, self._tv_exchange_combo.currentData())
         self._persist_tradingview_exchange()
+        self._sync_fundamental_exchange()
         data_source = getattr(self._ctx, "data_source", None)
         self._apply_tv_exchange_to_source(data_source)
         # Stop any running refresh and immediately restart so the new exchange
@@ -3537,7 +3567,9 @@ class MainWindow(QMainWindow):
                 meta = getattr(record, "meta", None)
                 symbol = getattr(meta, "symbol", "") if meta is not None else ""
                 if symbol:
-                    fundamental.update_for_symbol(symbol)
+                    fundamental.update_for_symbol(
+                        symbol, self._market_exchange_for_context()
+                    )
             except Exception:  # noqa
                 pass
 

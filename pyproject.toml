@@ -34,6 +34,9 @@ ashare = [
 equity = [
     "yfinance>=0.2.40",
 ]
+moomoo = [
+    "moomoo-api>=10.4.6408",
+]
 dev = [
     "pytest>=8",
     "pytest-qt>=4.4",

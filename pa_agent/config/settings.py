@@ -54,6 +54,14 @@ class PromptSettings(BaseModel):
     #: 基本面缓存 TTL（分钟）。
     fundamental_cache_ttl_minutes: int = Field(default=360, ge=1, le=1440)
 
+    # ── 主力资金流（moomoo OpenAPI / OpenD）──────────────────────────────
+    #: 是否启用 moomoo 主力资金流（特大/大/中/小单）。需本地 OpenD + moomoo-api，
+    #: 缺失/未连接时自动降级，不影响其它维度。默认关。
+    enable_moomoo_flow: bool = False
+    #: OpenD 网关地址/端口（默认本机 127.0.0.1:11111）。
+    moomoo_opend_host: str = "127.0.0.1"
+    moomoo_opend_port: int = Field(default=11111, ge=1, le=65535)
+
 
 class ValidationSettings(BaseModel):
     """Post-LLM validation behaviour."""

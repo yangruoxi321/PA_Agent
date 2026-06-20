@@ -228,6 +228,18 @@ class GeneralSettingsDialog(QDialog):
         self._fund_cache_ttl_spin.setToolTip("基本面缓存有效期，避免重复打网")
         fund_form.addRow("缓存有效期:", self._fund_cache_ttl_spin)
 
+        self._fund_moomoo_check = QCheckBox("主力资金流（特大/大/中/小单，需本地 OpenD）")
+        self._fund_moomoo_check.setToolTip(
+            "通过 moomoo OpenAPI 抓取港股/美股/A股主力资金流。\n"
+            "需安装 moomoo-api 并保持本地 OpenD 登录运行；未连接时自动降级。"
+        )
+        fund_form.addRow("主力资金流:", self._fund_moomoo_check)
+
+        self._fund_moomoo_port_spin = QSpinBox()
+        self._fund_moomoo_port_spin.setRange(1, 65535)
+        self._fund_moomoo_port_spin.setToolTip("OpenD 网关端口（默认 11111）")
+        fund_form.addRow("OpenD 端口:", self._fund_moomoo_port_spin)
+
         form_layout.addWidget(fund_group)
 
         buttons = QDialogButtonBox(
@@ -299,6 +311,8 @@ class GeneralSettingsDialog(QDialog):
         self._fund_news_max_spin.setValue(int(getattr(p, "fundamental_news_max_items", 3)))
         self._fund_flow_window_spin.setValue(int(getattr(p, "fundamental_flow_avg_window", 20)))
         self._fund_cache_ttl_spin.setValue(int(getattr(p, "fundamental_cache_ttl_minutes", 360)))
+        self._fund_moomoo_check.setChecked(bool(getattr(p, "enable_moomoo_flow", False)))
+        self._fund_moomoo_port_spin.setValue(int(getattr(p, "moomoo_opend_port", 11111)))
 
     def _on_save(self) -> None:
         g = self._settings.general
@@ -333,6 +347,8 @@ class GeneralSettingsDialog(QDialog):
         p.fundamental_news_max_items = self._fund_news_max_spin.value()
         p.fundamental_flow_avg_window = self._fund_flow_window_spin.value()
         p.fundamental_cache_ttl_minutes = self._fund_cache_ttl_spin.value()
+        p.enable_moomoo_flow = self._fund_moomoo_check.isChecked()
+        p.moomoo_opend_port = self._fund_moomoo_port_spin.value()
 
         save_settings(self._settings, SETTINGS_JSON_PATH)
         self.accept()

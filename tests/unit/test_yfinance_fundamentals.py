@@ -136,7 +136,7 @@ def test_sections_for_gui(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_yfinance(monkeypatch, info)
     ctx = yff.fetch_yf_fundamentals("0700.HK", Market.HK, use_cache=False)
     sections = yff.format_yf_fundamentals_sections(ctx)
-    assert any(title == "估值与基本面" for title, _ in sections)
+    assert any(title == "估值" for title, _ in sections)
 
 
 def test_news_fetched_and_rendered(monkeypatch: pytest.MonkeyPatch) -> None:

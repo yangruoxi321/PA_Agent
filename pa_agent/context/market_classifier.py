@@ -31,6 +31,49 @@ class Market(str, Enum):
 # 黄金/外汇等明确归 OTHER 的提示词
 _FOREX_METAL_HINTS = ("XAU", "XAG", "USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD")
 
+# 交易所 → 市场映射（用户在「交易所」框明确选择时优先生效）。
+# 未列出的（OANDA/BINANCE 等外汇/加密所）返回 None，回退到按代码判定。
+_EXCHANGE_MARKET: dict[str, Market] = {
+    # 港股
+    "HKEX": Market.HK, "HK": Market.HK, "SEHK": Market.HK,
+    # 美股
+    "NASDAQ": Market.US, "NYSE": Market.US, "AMEX": Market.US,
+    "NYSEARCA": Market.US, "ARCA": Market.US, "BATS": Market.US, "US": Market.US,
+    # A 股
+    "SSE": Market.A_SHARE, "SHSE": Market.A_SHARE, "SH": Market.A_SHARE,
+    "SHANGHAI": Market.A_SHARE, "SZSE": Market.A_SHARE, "XSHE": Market.A_SHARE,
+    "SZ": Market.A_SHARE, "SHENZHEN": Market.A_SHARE,
+}
+
+
+def market_from_exchange(exchange: str | None) -> Market | None:
+    """已知交易所 → 市场；未知/空 → None（交回代码判定）。"""
+    if not exchange:
+        return None
+    return _EXCHANGE_MARKET.get(exchange.strip().upper())
+
+
+def _is_non_equity_symbol(symbol: str) -> bool:
+    """明确的外汇/金属/加密(如 XAUUSD/EURUSD/BTCUSDT/XAUUSDm)。
+
+    这类符号在某些数据源里会被打上股票交易所(如 NASDAQ)，但它们**不是股票**，
+    去 yfinance 查必然 404。用于让交易所优先判定对它们网开一面 → 归 OTHER。
+    """
+    body = _strip_exchange_prefix(symbol).strip()
+    if not body:
+        return False
+    if is_likely_crypto_symbol(body):
+        return True
+    upper = body.upper().replace(".", "")
+    # 容忍 MT5 后缀(如 XAUUSDm 的尾 M)：7 位且以 M 结尾时取前 6 位
+    base = upper[:-1] if len(upper) == 7 and upper.endswith("M") else upper
+    if base in ("GOLD", "XAU", "XAG", "SILVER"):
+        return True
+    # 6 位外汇/金属对：含 ≥2 段货币/金属提示(XAUUSD、EURUSD…)
+    if len(base) == 6 and sum(h in base for h in _FOREX_METAL_HINTS) >= 2:
+        return True
+    return False
+
 # 美股代码：纯字母，或字母+点+字母(如 BRK.B)，长度合理
 _US_TICKER_RE = re.compile(r"^[A-Za-z]{1,6}(\.[A-Za-z]{1,3})?$")
 
@@ -73,11 +116,17 @@ def _looks_like_us(symbol: str) -> bool:
     return bool(_US_TICKER_RE.match(body))
 
 
-def classify_market(symbol: str, data_source: str | None = None) -> Market:
+def classify_market(
+    symbol: str,
+    data_source: str | None = None,
+    exchange: str | None = None,
+) -> Market:
     """判定 *symbol* 所属市场。
 
     优先级(从上到下)：
 
+    0. **交易所优先**：用户在「交易所」框明确选了已知交易所(NASDAQ/NYSE/HKEX/
+       SSE/SZSE…)时，以交易所为准，覆盖代码判定。外汇/加密所或「自动」不覆盖。
     1. A 股：6 位纯数字，或带 ``sh``/``sz`` 前缀、``.SH``/``.SZ`` 后缀。
     2. 港股：``HKEX:xxxx``、``.HK`` 后缀、或纯数字 1–5 位。
     3. 美股：纯字母或字母数字带点(``AAPL``、``BRK.B``)，且非外汇/金属/加密。
@@ -86,6 +135,12 @@ def classify_market(symbol: str, data_source: str | None = None) -> Market:
     *data_source* 作为辅助信号：``akshare``/``eastmoney`` 倾向 A 股；
     ``mt5`` 倾向 OTHER。
     """
+    # 0. 交易所优先：用户明确选择的已知交易所最权威——但明确的外汇/金属/加密
+    #    符号(黄金被某些源标成 NASDAQ 等)例外，它们不是股票，仍归 OTHER。
+    forced = market_from_exchange(exchange)
+    if forced is not None and not _is_non_equity_symbol(symbol):
+        return forced
+
     s = (symbol or "").strip()
     ds = (data_source or "").strip().lower()
 

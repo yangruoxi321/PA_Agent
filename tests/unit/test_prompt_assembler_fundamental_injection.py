@@ -58,13 +58,15 @@ def _write_prompt_files(tmp_path: Path) -> None:
 class _FakeProvider:
     def __init__(self, text: str):
         self._text = text
+        self.last_exchange: str | None = "unset"
 
-    def build_for_symbol(self, symbol, *, settings=None, frame=None):
+    def build_for_symbol(self, symbol, *, exchange=None, settings=None, frame=None):
+        self.last_exchange = exchange
         return self._text
 
 
 class _BoomProvider:
-    def build_for_symbol(self, symbol, *, settings=None, frame=None):
+    def build_for_symbol(self, symbol, *, exchange=None, settings=None, frame=None):
         raise RuntimeError("boom")
 
 
@@ -110,6 +112,32 @@ def test_marker_in_full_stage1(tmp_path: Path) -> None:
     )
     messages = asm.build_stage1(_make_frame())
     assert _MARKER in messages[1]["content"]
+
+
+def test_current_exchange_forwarded_to_provider(tmp_path: Path) -> None:
+    _write_prompt_files(tmp_path)
+    provider = _FakeProvider(_MARKER)
+    asm = PromptAssembler(
+        prompt_dir=tmp_path,
+        prompt_settings=_Settings(),
+        fundamental_provider=provider,
+    )
+    asm.current_exchange = "NASDAQ"
+    asm.build_stage1(_make_frame())
+    assert provider.last_exchange == "NASDAQ"
+
+
+def test_blank_current_exchange_forwarded_as_none(tmp_path: Path) -> None:
+    _write_prompt_files(tmp_path)
+    provider = _FakeProvider(_MARKER)
+    asm = PromptAssembler(
+        prompt_dir=tmp_path,
+        prompt_settings=_Settings(),
+        fundamental_provider=provider,
+    )
+    # 默认 current_exchange = "" → 传 None（不覆盖，回退按代码判定）
+    asm.build_stage1(_make_frame())
+    assert provider.last_exchange is None
 
 
 def test_marker_in_incremental(tmp_path: Path) -> None:

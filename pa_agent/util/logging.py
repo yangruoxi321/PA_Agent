@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import sys
 from typing import List
 
 from pa_agent.config.paths import LOG_FILE_PATH
@@ -54,6 +55,7 @@ _QUIET_LOGGER_NAMES = (
     "tvDatafeed.main",
     "root",  # tvdatafeed uses logging.getLogger("root") for websocket
     "websocket",
+    "moomoo",  # moomoo OpenAPI SDK：每次连/断 OpenD 都打 INFO，太吵
 )
 
 
@@ -90,8 +92,14 @@ def configure_logging(api_key: str = "") -> None:
     )
     file_handler.setFormatter(file_formatter)
 
-    # Console (stream) handler — INFO+ only; file keeps DEBUG for troubleshooting
-    console_handler = logging.StreamHandler()
+    # Console (stream) handler — INFO+ only; file keeps DEBUG for troubleshooting.
+    # Route to stdout and force UTF-8 so Chinese log content (宏观/分栏名) never
+    # crashes the handler on Windows cp1252 consoles.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    except Exception:  # noqa: BLE001 — older/odd streams without reconfigure
+        pass
+    console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(console_formatter)
 

@@ -848,6 +848,8 @@ class PromptAssembler:
         self._experience_reader = experience_reader
         self._prompt_settings = prompt_settings
         self._fundamental_provider = fundamental_provider
+        #: 当前「交易所」选择(由 GUI 更新)，用于多维上下文的交易所优先判定。
+        self.current_exchange: str = ""
 
     def _fundamental_context_block(self, frame: Any) -> str:
         """构建多维上下文块；无 provider/开关关闭/异常都返回 ""，永不抛。
@@ -865,7 +867,12 @@ class PromptAssembler:
             return ""
         try:
             symbol = getattr(frame, "symbol", "") or ""
-            text = provider.build_for_symbol(symbol, settings=settings, frame=frame)
+            text = provider.build_for_symbol(
+                symbol,
+                exchange=self.current_exchange or None,
+                settings=settings,
+                frame=frame,
+            )
             return text or ""
         except Exception:  # noqa: BLE001 — 永不向主流程抛
             logger.warning("fundamental context block failed", exc_info=True)
@@ -1603,6 +1610,9 @@ class PromptAssembler:
             f"{prev_pred_block + chr(10) if prev_pred_block else ''}"
             f"请根据以上诊断和K线数据,按《二元决策.txt》§3–§15 输出 JSON 决策结果"
             f"(含 decision_trace 与 terminal)。\n"
+            f"若阶段一诊断含 `context_assessment`(基本面/资金面/宏观交叉验证),"
+            f"须将其纳入 `trade_confidence` 权衡,并在 `decision.reasoning` 或 `key_factors` 中"
+            f"显式说明其为确认还是背离;背离时应更克制。\n"
             f"注意:如果判断不下单,entry_price、take_profit_price、stop_loss_price、order_direction 必须全部为 null。\n\n"
             f"{_STAGE2_TAIL_REMINDER}"
         )
@@ -1639,6 +1649,7 @@ class PromptAssembler:
             "bar_by_bar_summary",
             "gate_trace",
             "gate_result",
+            "context_assessment",
         )
         return {k: stage1_json[k] for k in keys if k in stage1_json}
 

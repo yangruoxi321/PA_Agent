@@ -6,14 +6,18 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from typing import Any
 
 from pa_agent.context.market_classifier import Market
+from pa_agent.context.yfinance_fundamentals import _run_with_timeout
 
 logger = logging.getLogger(__name__)
 
 _TTL_S = 60 * 60  # 宏观缓存 1 小时
+# 单个指数抓取超时(秒)
+_INDEX_TIMEOUT_S = 6
 
 # (yf 代码, 中文名) 篮子
 _BASKETS: dict[Market, list[tuple[str, str]]] = {
@@ -89,16 +93,29 @@ def _fetch_one(yf: Any, code: str, name: str) -> dict[str, Any] | None:
     """取单个指数近 2 根日线算涨跌%；失败返回 None。"""
     try:
         ticker = yf.Ticker(code)
-        hist = ticker.history(period="5d", interval="1d")
+        hist = _run_with_timeout(
+            lambda: ticker.history(period="5d", interval="1d"),
+            timeout=_INDEX_TIMEOUT_S,
+            default=None,
+        )
         if hist is None or len(hist) < 1:
             return None
-        closes = list(hist["Close"])
-        latest = float(closes[-1])
+        # 过滤 NaN 收盘：yfinance 对指数常返回最新一行为 NaN(当日未收盘/数据缺口)，
+        # 直接取会得到 nan。只保留有效收盘值。
+        closes: list[float] = []
+        for c in hist["Close"]:
+            try:
+                cf = float(c)
+            except (TypeError, ValueError):
+                continue
+            if not math.isnan(cf):
+                closes.append(cf)
+        if not closes:
+            return None
+        latest = closes[-1]
         change_pct: float | None = None
-        if len(closes) >= 2:
-            prev = float(closes[-2])
-            if prev != 0:
-                change_pct = round((latest - prev) / prev * 100, 2)
+        if len(closes) >= 2 and closes[-2] != 0:
+            change_pct = round((latest - closes[-2]) / closes[-2] * 100, 2)
         return {
             "code": code,
             "name": name,

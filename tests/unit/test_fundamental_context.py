@@ -175,7 +175,7 @@ def test_sections_for_gui(monkeypatch: pytest.MonkeyPatch) -> None:
         fc.macro_snapshot, "fetch_macro_snapshot", lambda *a, **k: {"available": False, "items": []}
     )
     sections = fc.build_sections_for_symbol("AAPL", settings=_Settings())
-    assert any(t == "估值与基本面" for t, _ in sections)
+    assert any(t == "估值" for t, _ in sections)
 
 
 def test_guidance_present_when_content(monkeypatch: pytest.MonkeyPatch) -> None:
