@@ -10,7 +10,12 @@ import logging
 import threading
 from typing import Any
 
-from pa_agent.context import macro_snapshot, moomoo_flow, yfinance_fundamentals
+from pa_agent.context import (
+    macro_snapshot,
+    moomoo_flow,
+    moomoo_fundamentals,
+    yfinance_fundamentals,
+)
 from pa_agent.context.flow_features import compute_flow_features, format_flow_for_prompt
 from pa_agent.context.market_classifier import Market, classify_market
 
@@ -62,6 +67,7 @@ def _gather_parallel(
     """
     res: dict[str, Any] = {
         "equity_ctx": None,
+        "moomoo_fund": None,
         "macro_snap": None,
         "flow_feat": None,
         "moomoo_flow": None,
@@ -70,13 +76,31 @@ def _gather_parallel(
     def _eq() -> None:
         if market not in _EQUITY_MARKETS:
             return
+        # moomoo 深度基本面（公司/财报/估值/盈利财务/区间/做空机构/分析师/营收）。
+        # 在线则全用 moomoo（更厚/更快/统一），不再打 yfinance；未连接才回退。
+        if _get(settings, "enable_moomoo_fundamentals", False):
+            try:
+                res["moomoo_fund"] = moomoo_fundamentals.fetch_moomoo_fundamentals(
+                    symbol,
+                    market,
+                    host=str(_get(settings, "moomoo_opend_host", "127.0.0.1")),
+                    port=int(_get(settings, "moomoo_opend_port", 11111)),
+                    use_cache=use_cache,
+                    ttl_seconds=_ttl_seconds(settings),
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning("moomoo fundamentals failed for %s", symbol, exc_info=True)
+        want_news = bool(_get(settings, "fundamental_include_news", False))
+        # moomoo 命中且不要新闻 → 跳过 yfinance（更快）。要新闻则仍抓（新闻仅 yfinance 有）。
+        if res["moomoo_fund"] is not None and not want_news:
+            return
         try:
             res["equity_ctx"] = yfinance_fundamentals.fetch_yf_fundamentals(
                 symbol,
                 market,
                 use_cache=use_cache,
                 ttl_seconds=_ttl_seconds(settings),
-                include_news=bool(_get(settings, "fundamental_include_news", False)),
+                include_news=want_news,
                 news_max_items=int(_get(settings, "fundamental_news_max_items", 3)),
             )
         except Exception:  # noqa: BLE001
@@ -147,7 +171,17 @@ def build_sections_for_symbol(
             symbol, market, settings=settings, use_cache=use_cache, frame=frame
         )
 
-        if data["equity_ctx"] is not None:
+        # moomoo 在线 → 全用 moomoo（更厚/更快/统一）；离线才回退 yfinance。
+        if data["moomoo_fund"] is not None:
+            sections.extend(
+                moomoo_fundamentals.format_moomoo_fundamentals_sections(data["moomoo_fund"])
+            )
+            # 新闻仅 yfinance 有 → moomoo 在场时单独补「近期新闻」节。
+            if data["equity_ctx"] is not None:
+                for title, body in _equity_sections(data["equity_ctx"], settings):
+                    if title == "近期新闻":
+                        sections.append((title, body))
+        elif data["equity_ctx"] is not None:
             sections.extend(_equity_sections(data["equity_ctx"], settings))
 
         # 量价资金面(基于 frame，所有市场可用)
@@ -218,8 +252,21 @@ def build_for_symbol(
         )
         blocks: list[str] = []
 
-        # 个股基本面/情绪/机构做空(仅港股/美股)
-        if data["equity_ctx"] is not None:
+        # 个股基本面(仅港股/美股)。moomoo 在线全用 moomoo；离线回退 yfinance。
+        if data["moomoo_fund"] is not None:
+            block = moomoo_fundamentals.format_moomoo_fundamentals_for_prompt(
+                data["moomoo_fund"]
+            )
+            if block:
+                blocks.append(block)
+            # 新闻仅 yfinance 有 → moomoo 在场时单独补「近期新闻」块。
+            if data["equity_ctx"] is not None:
+                news = _render_equity_block(
+                    data["equity_ctx"], settings, only_titles=("近期新闻",)
+                )
+                if news:
+                    blocks.append(news)
+        elif data["equity_ctx"] is not None:
             block = _render_equity_block(data["equity_ctx"], settings)
             if block:
                 blocks.append(block)
@@ -253,12 +300,18 @@ def build_for_symbol(
         return ""
 
 
-def _render_equity_block(ctx: dict[str, Any], settings: Any) -> str:
-    """渲染港股/美股块，按开关裁剪情绪/资金面小节。"""
+def _render_equity_block(
+    ctx: dict[str, Any], settings: Any, *, only_titles: tuple[str, ...] = ()
+) -> str:
+    """渲染港股/美股块，按开关裁剪情绪/资金面小节；only_titles 时只保留指定小节。"""
     sections = _equity_sections(ctx, settings)
+    if only_titles:
+        sections = [(t, b) for t, b in sections if t in only_titles]
     if not sections:
         return ""
-    lines = ["## 基本面与分析师观点(程序抓取，供参考)", ""]
+    # 仅渲染新闻等补充节时换标题，避免与 moomoo「基本面」重复。
+    heading = "## 近期新闻(程序抓取，供参考)" if only_titles else "## 基本面与分析师观点(程序抓取，供参考)"
+    lines = [heading, ""]
     for title, body in sections:
         lines.append(f"### {title}")
         lines.append(body)

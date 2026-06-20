@@ -58,6 +58,9 @@ class PromptSettings(BaseModel):
     #: 是否启用 moomoo 主力资金流（特大/大/中/小单）。需本地 OpenD + moomoo-api，
     #: 缺失/未连接时自动降级，不影响其它维度。默认关。
     enable_moomoo_flow: bool = False
+    #: 是否用 moomoo 深度基本面（公司简介/财报/估值分位/分析师/营收分部）。
+    #: 开启后港股/美股优先用 moomoo，未连接时自动回退 yfinance。默认关。
+    enable_moomoo_fundamentals: bool = False
     #: OpenD 网关地址/端口（默认本机 127.0.0.1:11111）。
     moomoo_opend_host: str = "127.0.0.1"
     moomoo_opend_port: int = Field(default=11111, ge=1, le=65535)

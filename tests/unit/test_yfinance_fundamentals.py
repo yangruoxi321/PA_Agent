@@ -156,6 +156,35 @@ def test_news_fetched_and_rendered(monkeypatch: pytest.MonkeyPatch) -> None:
     assert any(title == "近期新闻" for title, _ in sections)
 
 
+def test_news_includes_summary_and_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 新结构：内容在 content 下，含 summary/provider。
+    info = {"trailingPE": 10.0, "currency": "USD"}
+    news = [
+        {
+            "id": "x",
+            "content": {
+                "title": "WDC rallies on memory shortage",
+                "summary": "Sandisk shares rocketed amid a memory chip supply shortage.",
+                "provider": {"displayName": "Motley Fool"},
+                "pubDate": "2026-06-20T09:08:00Z",
+            },
+        }
+    ]
+    ticker_obj = SimpleNamespace(info=info, news=news)
+    fake = SimpleNamespace(Ticker=mock.Mock(return_value=ticker_obj))
+    monkeypatch.setitem(sys.modules, "yfinance", fake)
+    ctx = yff.fetch_yf_fundamentals(
+        "WDC", Market.US, use_cache=False, include_news=True, news_max_items=1
+    )
+    item = ctx["news"][0]
+    assert item["title"] == "WDC rallies on memory shortage"
+    assert "memory chip supply" in item["summary"]
+    assert item["provider"] == "Motley Fool"
+    sections = dict(yff.format_yf_fundamentals_sections(ctx))
+    assert "Motley Fool" in sections["近期新闻"]
+    assert "memory chip supply" in sections["近期新闻"]
+
+
 def test_news_not_fetched_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     info = {"trailingPE": 10.0, "currency": "USD"}
     news = [{"title": "X", "providerPublishTime": 1}]

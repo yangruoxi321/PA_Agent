@@ -261,7 +261,11 @@ def _safe_info(ticker: Any) -> dict[str, Any]:
 
 
 def _safe_news(ticker: Any, max_items: int) -> list[dict[str, Any]]:
-    """安全读取 ``ticker.news`` 前 N 条标题+时间，失败返回 []。"""
+    """安全读取 ``ticker.news`` 前 N 条：标题 + 摘要 + 来源 + 时间，失败返回 []。
+
+    yfinance 新数据结构把内容放在 ``item["content"]`` 下，含 summary/description、
+    provider、pubDate；旧结构是扁平的。两种都兼容。
+    """
     try:
         raw = ticker.news or []
     except Exception:
@@ -270,10 +274,29 @@ def _safe_news(ticker: Any, max_items: int) -> list[dict[str, Any]]:
     for item in raw[:max_items]:
         if not isinstance(item, dict):
             continue
-        title = item.get("title") or (item.get("content") or {}).get("title")
-        published = item.get("providerPublishTime") or item.get("pubDate")
-        if title:
-            out.append({"title": title, "publishedAt": published})
+        content = item.get("content") if isinstance(item.get("content"), dict) else {}
+        title = item.get("title") or content.get("title")
+        if not title:
+            continue
+        summary = content.get("summary") or content.get("description") or ""
+        provider = ""
+        prov = content.get("provider")
+        if isinstance(prov, dict):
+            provider = prov.get("displayName") or ""
+        provider = provider or item.get("publisher") or ""
+        published = (
+            content.get("pubDate")
+            or item.get("providerPublishTime")
+            or item.get("pubDate")
+        )
+        out.append(
+            {
+                "title": title,
+                "summary": (summary or "").strip(),
+                "provider": provider,
+                "publishedAt": published,
+            }
+        )
     return out
 
 
@@ -471,15 +494,21 @@ def format_yf_fundamentals_sections(ctx: dict[str, Any]) -> list[tuple[str, str]
     if flow_lines:
         sections.append(("资金面(机构/做空)", "\n".join(flow_lines)))
 
-    # 近期新闻(Phase 2)
+    # 近期新闻：标题 + 摘要 + 来源
     news = ctx.get("news") or []
     news_lines: list[str] = []
     for item in news:
         if not isinstance(item, dict):
             continue
         title = item.get("title")
-        if title:
-            news_lines.append(f"- {title}")
+        if not title:
+            continue
+        provider = item.get("provider") or ""
+        head = f"- {title}" + (f"（{provider}）" if provider else "")
+        news_lines.append(head)
+        summary = (item.get("summary") or "").strip()
+        if summary:
+            news_lines.append(f"  {summary[:160]}{'…' if len(summary) > 160 else ''}")
     if news_lines:
         sections.append(("近期新闻", "\n".join(news_lines)))
 

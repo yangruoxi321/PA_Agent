@@ -235,6 +235,13 @@ class GeneralSettingsDialog(QDialog):
         )
         fund_form.addRow("主力资金流:", self._fund_moomoo_check)
 
+        self._fund_moomoo_fund_check = QCheckBox("深度基本面（公司/财报/估值分位/分析师，需 OpenD）")
+        self._fund_moomoo_fund_check.setToolTip(
+            "港股/美股优先用 moomoo 的深度基本面（公司简介/财报核心+增速/\n"
+            "PE·PS 历史分位/分析师一致预期/营收分部）；未连接时自动回退 yfinance。"
+        )
+        fund_form.addRow("深度基本面:", self._fund_moomoo_fund_check)
+
         self._fund_moomoo_port_spin = QSpinBox()
         self._fund_moomoo_port_spin.setRange(1, 65535)
         self._fund_moomoo_port_spin.setToolTip("OpenD 网关端口（默认 11111）")
@@ -312,6 +319,9 @@ class GeneralSettingsDialog(QDialog):
         self._fund_flow_window_spin.setValue(int(getattr(p, "fundamental_flow_avg_window", 20)))
         self._fund_cache_ttl_spin.setValue(int(getattr(p, "fundamental_cache_ttl_minutes", 360)))
         self._fund_moomoo_check.setChecked(bool(getattr(p, "enable_moomoo_flow", False)))
+        self._fund_moomoo_fund_check.setChecked(
+            bool(getattr(p, "enable_moomoo_fundamentals", False))
+        )
         self._fund_moomoo_port_spin.setValue(int(getattr(p, "moomoo_opend_port", 11111)))
 
     def _on_save(self) -> None:
@@ -348,6 +358,7 @@ class GeneralSettingsDialog(QDialog):
         p.fundamental_flow_avg_window = self._fund_flow_window_spin.value()
         p.fundamental_cache_ttl_minutes = self._fund_cache_ttl_spin.value()
         p.enable_moomoo_flow = self._fund_moomoo_check.isChecked()
+        p.enable_moomoo_fundamentals = self._fund_moomoo_fund_check.isChecked()
         p.moomoo_opend_port = self._fund_moomoo_port_spin.value()
 
         save_settings(self._settings, SETTINGS_JSON_PATH)
