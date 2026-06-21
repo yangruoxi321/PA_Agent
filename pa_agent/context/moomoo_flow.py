@@ -30,7 +30,7 @@ _EXECUTOR = concurrent.futures.ThreadPoolExecutor(
 )
 
 # 有主力资金流的市场（外汇/加密/指数 CFD 无）。
-_FLOW_MARKETS = (Market.US, Market.HK, Market.A_SHARE)
+_FLOW_MARKETS = (Market.US, Market.HK, Market.A_SHARE, Market.JP)
 
 
 def _run_with_timeout(fn: Callable[[], Any], *, timeout: float, default: Any) -> Any:
@@ -68,6 +68,12 @@ def to_moomoo_code(symbol: str, market: Market) -> str | None:
         if not digits:
             return None
         return f"HK.{digits.zfill(5)}"
+
+    if market is Market.JP:
+        # moomoo 用 JP.7203（需开通日本行情权限，否则降级 None）。代码可为字母数字(285A)。
+        body = (s[:-2] if s.upper().endswith(".T") else s).strip().upper()
+        return f"JP.{body}" if body else None
+    # 注：韩股(KR) moomoo 不支持（代码格式都不收），永远返回 None → 自动走 yfinance。
 
     if market is Market.A_SHARE:
         digits = re.sub(r"\D", "", s)

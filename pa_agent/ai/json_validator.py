@@ -355,6 +355,7 @@ class JsonValidator:
         incremental_new_bar_count: int = 0,
         incremental_previous_stage1: dict[str, Any] | None = None,
         skip_next_bar: bool = False,
+        had_fundamental: bool = False,  # noqa: ARG002 — 仅为兼容 **validate_kwargs
     ) -> dict[str, Any]:
         """Apply the same post-parse normalization as :meth:`validate`."""
         norm_mode = getattr(self._validation, "normalization_mode", "strict")
@@ -394,6 +395,8 @@ class JsonValidator:
         incremental_new_bar_count: int = 0,
         incremental_previous_stage1: dict[str, Any] | None = None,
         skip_next_bar: bool = False,
+        had_fundamental: bool = False,
+        _attempt: int = 0,
     ) -> Result:
         """Validate *raw_text* against the schema for *stage*.
 
@@ -505,6 +508,28 @@ class JsonValidator:
 
         # ── Explicit cross-field checks ───────────────────────────────────────
         if stage == "stage1":
+            # context_assessment 兜底：本次注入了基本面时，模型必须做交叉验证。
+            # 未填/无效 → 补程序兜底壳（保证字段非 null、流程不卡）；并在未到
+            # 语义重试上限前报错触发重试（逼模型真填），到上限则接受壳放行。
+            if had_fundamental:
+                _ca = obj.get("context_assessment")
+                _valid_stances = {"confirms", "diverges", "neutral", "na"}
+                _ca_ok = (
+                    isinstance(_ca, dict) and _ca.get("stance") in _valid_stances
+                )
+                if not _ca_ok:
+                    obj["context_assessment"] = {
+                        "stance": "na",
+                        "confidence_adjustment": 0,
+                        "note": "（程序兜底：模型本轮未提供基本面交叉验证）",
+                        "_auto_filled": True,
+                    }
+                    _sem_max = int(
+                        getattr(self._validation, "retry_max_semantic", 1) or 1
+                    )
+                    if _attempt < _sem_max:
+                        invalid.append("s1:context_assessment_missing")
+
             from pa_agent.ai.coherence_checks import auto_fix_bar_by_bar_types
 
             # Auto-correct contradicting bar_type values before validation so

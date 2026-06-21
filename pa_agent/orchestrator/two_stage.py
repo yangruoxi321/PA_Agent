@@ -58,6 +58,17 @@ def _latency_ms_label(latency_ms: object) -> str:
 _FALLBACK_STREAM_CHUNK = 48
 
 
+def _messages_have_fundamental(messages: list[dict[str, Any]]) -> bool:
+    """本次 prompt 是否注入了基本面块（据此决定是否强制 context_assessment）。"""
+    from pa_agent.context.fundamental_context import FUNDAMENTAL_BLOCK_MARKER
+
+    for m in messages or []:
+        c = m.get("content")
+        if isinstance(c, str) and FUNDAMENTAL_BLOCK_MARKER in c:
+            return True
+    return False
+
+
 def _json_truncation_hint(content: str, err: ValidationError) -> str | None:
     """Detect incomplete JSON (stream stopped mid-object) vs a stray syntax typo."""
     if err.category != "a":
@@ -548,6 +559,7 @@ class TwoStageOrchestrator:
                 "kline_frame": frame,
                 "incremental_new_bar_count": int(incremental_new_bar_count or 0),
                 "incremental_previous_stage1": prev_s1,
+                "had_fundamental": _messages_have_fundamental(messages_s1),
             },
             call_api=_call_s1_retry,
             provider_settings=getattr(self._settings, "provider", None),

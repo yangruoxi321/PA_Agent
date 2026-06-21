@@ -191,4 +191,5 @@ def test_guidance_present_when_content(monkeypatch: pytest.MonkeyPatch) -> None:
         },
     )
     out = fc.build_for_symbol("XAUUSD", settings=_Settings())
-    assert "以价格行为为主" in out
+    # 引导语外置为可编辑 txt；断言用稳定标记，不绑定具体措辞。
+    assert fc.FUNDAMENTAL_BLOCK_MARKER in out

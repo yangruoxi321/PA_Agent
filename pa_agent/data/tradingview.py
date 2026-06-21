@@ -69,6 +69,8 @@ TV_EXCHANGE_PRESETS: tuple[str, ...] = (
     "SP",
     "NYSE",
     "NASDAQ",
+    "TSE",
+    "KRX",
     "CBOT",
     "CME_MINI",
     "",

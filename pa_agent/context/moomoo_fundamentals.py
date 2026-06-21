@@ -27,7 +27,7 @@ _EXECUTOR = concurrent.futures.ThreadPoolExecutor(
     max_workers=2, thread_name_prefix="moomoo-fund"
 )
 
-_FUND_MARKETS = (Market.US, Market.HK, Market.A_SHARE)
+_FUND_MARKETS = (Market.US, Market.HK, Market.A_SHARE, Market.JP)
 
 # 分析师评级（moomoo rating 1–5）
 _RATING_LABEL = {1: "卖出", 2: "减持", 3: "持有", 4: "买入", 5: "强烈买入"}

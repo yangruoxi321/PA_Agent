@@ -306,12 +306,7 @@ class MainWindow(QMainWindow):
         _ai_model_action.triggered.connect(self._open_ai_model_settings_dialog)
         menu_bar.addAction(_ai_model_action)
 
-        # 2. 飞书发送通知设置 — 点击直接弹对话框（无下拉）
-        _feishu_action = QAction("飞书发送通知设置", self)
-        _feishu_action.triggered.connect(self._open_feishu_settings_dialog)
-        menu_bar.addAction(_feishu_action)
-
-        # 3. 其他通用设置 — 点击直接弹对话框（无下拉）
+        # 2. 其他通用设置 — 点击直接弹对话框（无下拉）
         _general_action = QAction("其他通用设置", self)
         _general_action.triggered.connect(self._open_general_settings_dialog)
         menu_bar.addAction(_general_action)
@@ -403,6 +398,8 @@ class MainWindow(QMainWindow):
             "HKEX":      "HKEX（港股）",
             "NYSE":      "NYSE（美股）",
             "NASDAQ":    "NASDAQ（美股）",
+            "TSE":       "TSE（日股）",
+            "KRX":       "KRX（韩股）",
             "SP":        "SP（美股指数）",
             "OANDA":     "OANDA（外汇）",
             "PEPPERSTONE": "PEPPERSTONE（外汇）",
@@ -3151,33 +3148,6 @@ class MainWindow(QMainWindow):
                 except Exception as _exc:  # noqa: BLE001
                     logger.warning("Trade record logging failed: %s", _exc)
 
-                # ── 飞书通知：下单信号推送 ─────────────────────────────────────
-                try:
-                    from pa_agent.notify.feishu_notifier import send_order_signal
-                    from pa_agent.records.trade_logger import _TRADE_RECORDS_DIR
-
-                    # 找本次交易记录生成的最新 PNG（按修改时间倒序取第一个）
-                    _safe_sym = _meta_symbol.replace("/", "-").replace("\\", "-")
-                    _safe_tf = _meta_timeframe.replace("/", "-")
-                    _img_glob = f"{_safe_sym}_{_safe_tf}_*.png"
-                    _candidates = sorted(
-                        _TRADE_RECORDS_DIR.glob(_img_glob),
-                        key=lambda _p: _p.stat().st_mtime,
-                        reverse=True,
-                    )
-                    _latest_img = _candidates[0] if _candidates else None
-
-                    send_order_signal(
-                        decision_inner=inner,
-                        stage2_full=decision,
-                        symbol=_meta_symbol,
-                        timeframe=_meta_timeframe,
-                        chart_image_path=_latest_img,
-                        settings=settings,
-                    )
-                except Exception as _feishu_exc:  # noqa: BLE001
-                    logger.warning("飞书通知失败（不影响主流程）: %s", _feishu_exc)
-
             elif getattr(self, "_demo_mode", False):
                 self._present_decision_flow_playback(force_play=True)
 
@@ -3560,6 +3530,16 @@ class MainWindow(QMainWindow):
                 stage2_prompt_txt_files(strategy),
                 experience_count=len(experience),
             )
+            # 从阶段一真实 user 消息检测动态注入（基本面/资金流/宏观）
+            try:
+                s1_user = ""
+                for _msg in getattr(record, "stage1_messages", []) or []:
+                    if _msg.get("role") == "user":
+                        _cc = _msg.get("content", "")
+                        s1_user = _cc if isinstance(_cc, str) else " ".join(map(str, _cc))
+                pf.set_dynamic_injection(s1_user)
+            except Exception:  # noqa: BLE001
+                pass
 
         fundamental = getattr(self._ai_sidebar, "fundamental", None)
         if fundamental is not None:
@@ -3947,18 +3927,6 @@ class MainWindow(QMainWindow):
                 update_api_key(key)
             self._update_ai_mode_label()
             self._refresh_api_key_ui_state()
-
-    def _open_feishu_settings_dialog(self) -> None:
-        """打开飞书机器人设置对话框."""
-        from pa_agent.gui.feishu_settings_dialog import FeishuSettingsDialog
-        from pa_agent.config.settings import Settings
-
-        settings: Settings = self._ctx.settings  # type: ignore[assignment]
-        if settings is None:
-            settings = Settings()
-
-        dlg = FeishuSettingsDialog(settings=settings, parent=self)
-        dlg.exec()
 
     def _open_general_settings_dialog(self) -> None:
         """打开通用设置对话框."""

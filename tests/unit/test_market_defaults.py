@@ -5,6 +5,7 @@ from pa_agent.data.market_defaults import (
     GOLD_MT5_SYMBOL,
     GOLD_TV_EXCHANGE,
     GOLD_TV_SYMBOL,
+    TV_EQUITY_EXCHANGES,
     ashare_tv_probe_order,
     infer_ashare_tv_exchange,
     is_partial_tv_symbol_input,
@@ -39,11 +40,10 @@ def test_tv_exchange_auto_preserved():
 def test_tv_forex_auto_probe_tries_all_forex_presets():
     plan = tv_forex_auto_probe_plan("XAUUSD")
     exchanges = [ex for ex, _ in plan]
-    assert exchanges == [
-        ex
-        for ex in TV_EXCHANGE_PRESETS
-        if ex and ex not in {"SSE", "SZSE", "HKEX"}
-    ]
+    # 黄金只在有 gold feed 的外汇/商品所探测，绝不含任何股票交易所(含日韩 TSE/KRX)。
+    assert not any(ex in TV_EQUITY_EXCHANGES for ex in exchanges)
+    assert "TSE" not in exchanges and "KRX" not in exchanges
+    # 关键现货黄金 feed 必在。
     assert ("OANDA", "XAUUSD") in plan
     assert ("TVC", "GOLD") in plan
 

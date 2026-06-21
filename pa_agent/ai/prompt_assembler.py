@@ -112,6 +112,27 @@ _STAGE1_TAIL_REMINDER = (
     "但 gate_trace 与 gate_result 必须写在 JSON 末尾且不可省略。"
 ).strip()
 
+# 仅当提示含多维上下文时追加：强制 AI 在顶层输出 context_assessment，
+# 命中"AI 照输出契约走、契约未列该字段 → 漏填"的根因。
+_STAGE1_CONTEXT_REQUIRED = (
+    "【多维上下文·必填字段】本次提示已附基本面/资金面/宏观信息，你**必须**在阶段一 JSON "
+    "顶层输出 `context_assessment` 字段（与 gate_trace/gate_result 同级，不可省略、不得为 null）：\n"
+    '  "context_assessment": {"stance": "confirms|diverges|neutral|na", '
+    '"confidence_adjustment": <整数 -30~30>, "note": "一句简体中文，点明哪一项基本面/资金面/'
+    '宏观与技术方向确认或背离"}\n'
+    "- stance：技术方向被基本面确认填 confirms、背离填 diverges、无显著关系填 neutral、"
+    "无可用基本面（如外汇）填 na；\n"
+    "- 即使判定为 neutral/na，也必须输出该字段并简述理由，禁止省略或置 null；\n"
+    "- 并在 key_signals 或 risk_warning 中用一句话体现该交叉验证结论。"
+)
+
+
+def _stage1_tail(fundamental_block: str) -> str:
+    """有基本面注入时，在尾部提醒前强制 context_assessment；否则原样。"""
+    if fundamental_block:
+        return _STAGE1_CONTEXT_REQUIRED + "\n\n" + _STAGE1_TAIL_REMINDER
+    return _STAGE1_TAIL_REMINDER
+
 _INCREMENTAL_OUTPUT_HARD_RULES = """
 ## 增量输出格式（硬约束，违反则程序自动重试）
 
@@ -1273,7 +1294,7 @@ class PromptAssembler:
             + (f"{prefill_hint}\n\n" if prefill_hint else "")
             + (f"{fundamental_block}\n\n" if fundamental_block else "")
             + f"请根据以上数据，严格输出阶段一 JSON 诊断结果。\n\n"
-            f"{_STAGE1_TAIL_REMINDER}"
+            f"{_stage1_tail(fundamental_block)}"
         )
 
     def _build_incremental_stage1_user_prompt(
@@ -1345,7 +1366,7 @@ class PromptAssembler:
             + (f"{prefill_hint}\n\n" if prefill_hint else "")
             + (f"{fundamental_block}\n\n" if fundamental_block else "")
             + "请基于上一轮结论、新增K线和当前完整K线，严格输出更新后的阶段一 JSON 诊断结果。\n\n"
-            f"{_STAGE1_TAIL_REMINDER}"
+            f"{_stage1_tail(fundamental_block)}"
         )
 
     def _build_incremental_stage1_continuation_user_prompt(
@@ -1417,7 +1438,7 @@ class PromptAssembler:
             + (f"{prefill_hint}\n\n" if prefill_hint else "")
             + (f"{fundamental_block}\n\n" if fundamental_block else "")
             + "请基于上方完整K线数据、上一轮结论和新增K线，严格输出更新后的阶段一 JSON 诊断结果。\n\n"
-            f"{_STAGE1_TAIL_REMINDER}"
+            f"{_stage1_tail(fundamental_block)}"
         )
 
     # ── Stage 2 ───────────────────────────────────────────────────────────────

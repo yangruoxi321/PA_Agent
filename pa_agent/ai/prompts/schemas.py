@@ -292,8 +292,8 @@ STAGE1_SCHEMA: dict = {
                 },
                 "confidence_adjustment": {
                     "type": "integer",
-                    "minimum": -20,
-                    "maximum": 20,
+                    "minimum": -30,
+                    "maximum": 30,
                 },
                 "note": {"type": "string"},
             },

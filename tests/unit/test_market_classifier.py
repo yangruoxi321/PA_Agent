@@ -22,6 +22,10 @@ pytestmark = pytest.mark.unit
         ("SEHK", Market.HK),
         ("SSE", Market.A_SHARE),
         ("SZSE", Market.A_SHARE),
+        ("TSE", Market.JP),
+        ("tyo", Market.JP),
+        ("KRX", Market.KR),
+        ("KOSDAQ", Market.KR),
         ("OANDA", None),  # 外汇所不覆盖
         ("BINANCE", None),  # 加密所不覆盖
         ("", None),
@@ -74,6 +78,38 @@ def test_hk(symbol: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "symbol,exchange",
+    [
+        ("7203", "TSE"),       # 选交易所
+        ("TSE:7203", None),    # 交易所前缀
+        ("7203.T", None),      # yfinance 后缀
+        ("6758.T", None),
+    ],
+)
+def test_jp(symbol: str, exchange) -> None:
+    assert classify_market(symbol, exchange=exchange) is Market.JP
+
+
+@pytest.mark.parametrize(
+    "symbol,exchange",
+    [
+        ("005930", "KRX"),     # 选交易所
+        ("KRX:005930", None),  # 交易所前缀
+        ("005930.KS", None),   # KOSPI 后缀
+        ("247540.KQ", None),   # KOSDAQ 后缀
+    ],
+)
+def test_kr(symbol: str, exchange) -> None:
+    assert classify_market(symbol, exchange=exchange) is Market.KR
+
+
+def test_jp_kr_numeric_needs_exchange() -> None:
+    # 数字代码冲突：无交易所时日股 4 位→港股、韩股 6 位→A 股（必须靠选交易所区分）。
+    assert classify_market("7203") is Market.HK
+    assert classify_market("005930") is Market.A_SHARE
+
+
+@pytest.mark.parametrize(
     "symbol",
     ["AAPL", "brk.b", "TSLA", "NVDA", "NASDAQ:AAPL", "BRK.B"],
 )
@@ -110,4 +146,6 @@ def test_market_enum_values() -> None:
     assert Market.A_SHARE.value == "a_share"
     assert Market.HK.value == "hk"
     assert Market.US.value == "us"
+    assert Market.JP.value == "jp"
+    assert Market.KR.value == "kr"
     assert Market.OTHER.value == "other"

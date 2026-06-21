@@ -78,7 +78,13 @@ _KNOWN_INDEX_TICKERS: dict[str, list[tuple[str, str]]] = {
 TV_ASHARE_EXCHANGES: frozenset[str] = frozenset({"SSE", "SZSE"})
 TV_HK_EXCHANGE = "HKEX"
 TV_HK_EXCHANGES: frozenset[str] = frozenset({TV_HK_EXCHANGE, "HK", "HKG", "HONGKONG"})
-TV_EQUITY_EXCHANGES: frozenset[str] = TV_ASHARE_EXCHANGES | TV_HK_EXCHANGES
+TV_JP_EXCHANGE = "TSE"  # 东京证券交易所（TradingView 用 TSE:7203）
+TV_JP_EXCHANGES: frozenset[str] = frozenset({TV_JP_EXCHANGE, "TYO", "JPX"})
+TV_KR_EXCHANGE = "KRX"  # 韩国交易所（KOSPI/KOSDAQ 统一 KRX:005930）
+TV_KR_EXCHANGES: frozenset[str] = frozenset({TV_KR_EXCHANGE, "KOSPI", "KOSDAQ"})
+TV_EQUITY_EXCHANGES: frozenset[str] = (
+    TV_ASHARE_EXCHANGES | TV_HK_EXCHANGES | TV_JP_EXCHANGES | TV_KR_EXCHANGES
+)
 TV_SSE_INDEX_CODES: frozenset[str] = frozenset(
     {"000016", "000300", "000905", "000852"}
 )

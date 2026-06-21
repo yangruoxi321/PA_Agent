@@ -25,6 +25,8 @@ class Market(str, Enum):
     A_SHARE = "a_share"
     HK = "hk"
     US = "us"
+    JP = "jp"
+    KR = "kr"
     OTHER = "other"
 
 
@@ -43,6 +45,12 @@ _EXCHANGE_MARKET: dict[str, Market] = {
     "SSE": Market.A_SHARE, "SHSE": Market.A_SHARE, "SH": Market.A_SHARE,
     "SHANGHAI": Market.A_SHARE, "SZSE": Market.A_SHARE, "XSHE": Market.A_SHARE,
     "SZ": Market.A_SHARE, "SHENZHEN": Market.A_SHARE,
+    # 日股（东京证券交易所）
+    "TSE": Market.JP, "TYO": Market.JP, "JPX": Market.JP,
+    "XTKS": Market.JP, "TOKYO": Market.JP, "JP": Market.JP,
+    # 韩股（韩国交易所；KOSPI/KOSDAQ 统一 KRX）
+    "KRX": Market.KR, "KSC": Market.KR, "KOSPI": Market.KR,
+    "KOSDAQ": Market.KR, "XKRX": Market.KR, "KR": Market.KR,
 }
 
 
@@ -100,6 +108,19 @@ def _looks_like_hk(symbol: str) -> bool:
     return _is_hk_tv_code(code)
 
 
+def _market_from_suffix(body: str) -> Market | None:
+    """按 yfinance 风格后缀识别日韩：``.T``/``.JP`` → 日股，``.KS``/``.KQ`` → 韩股。
+
+    必须在 4 位(日股)/6 位(韩股)数字识别之前调用，否则会被港股/A 股误判。
+    """
+    u = (body or "").strip().upper()
+    if u.endswith(".T") or u.endswith(".JP"):
+        return Market.JP
+    if u.endswith((".KS", ".KQ")):
+        return Market.KR
+    return None
+
+
 def _looks_like_us(symbol: str) -> bool:
     """美股：纯字母或字母数字带点(AAPL/BRK.B)，且非外汇/金属/加密。"""
     body = _strip_exchange_prefix(symbol).strip()
@@ -135,9 +156,14 @@ def classify_market(
     *data_source* 作为辅助信号：``akshare``/``eastmoney`` 倾向 A 股；
     ``mt5`` 倾向 OTHER。
     """
-    # 0. 交易所优先：用户明确选择的已知交易所最权威——但明确的外汇/金属/加密
-    #    符号(黄金被某些源标成 NASDAQ 等)例外，它们不是股票，仍归 OTHER。
-    forced = market_from_exchange(exchange)
+    # 0. 交易所优先：显式 exchange 参数 > symbol 自带前缀(如 TSE:7203/KRX:005930)。
+    #    外汇/金属/加密(黄金被某些源标成 NASDAQ 等)例外，它们不是股票，仍归 OTHER。
+    ex = exchange
+    if not ex:
+        raw = symbol or ""
+        if ":" in raw:
+            ex = raw.split(":", 1)[0]
+    forced = market_from_exchange(ex)
     if forced is not None and not _is_non_equity_symbol(symbol):
         return forced
 
@@ -148,6 +174,11 @@ def classify_market(
         return Market.OTHER
 
     body = _strip_exchange_prefix(s)
+
+    # 日韩后缀（在数字识别前：日股 4 位、韩股 6 位与港股/A 股数字冲突）
+    suffixed = _market_from_suffix(body)
+    if suffixed is not None:
+        return suffixed
 
     # 数据源强信号：A 股专用源
     if ds in ("akshare", "eastmoney"):

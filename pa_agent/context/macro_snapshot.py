@@ -38,6 +38,20 @@ _BASKETS: dict[Market, list[tuple[str, str]]] = {
         ("000001.SS", "上证指数"),
         ("399001.SZ", "深证成指"),
     ],
+    Market.JP: [
+        ("^N225", "日经225"),
+        ("1306.T", "东证指数ETF"),  # TOPIX 代理；^TPX 已在 Yahoo 退市
+        ("JPY=X", "美元日元"),
+        ("^TNX", "美债10Y"),
+        ("DX-Y.NYB", "美元指数"),
+    ],
+    Market.KR: [
+        ("^KS11", "韩国综合指数"),
+        ("^KQ11", "科斯达克"),
+        ("KRW=X", "美元韩元"),
+        ("^TNX", "美债10Y"),
+        ("DX-Y.NYB", "美元指数"),
+    ],
     Market.OTHER: [
         ("DX-Y.NYB", "美元指数"),
         ("^TNX", "美债10Y"),

@@ -26,7 +26,7 @@ for max_tok in [524288, 128000, 64000, 8192]:
         print('max_tokens', max_tok, 'ERR', type(e).__name__, str(e)[:120])
 \""
 started_at: 2026-06-19T11:06:51.790Z
-running_for_ms: 4615009  
+running_for_ms: 23775004 
 ---
 max_tokens 524288 status 200
   stream ok lines 3

@@ -49,7 +49,8 @@ def validate_with_retry(
 
     while True:
         content = getattr(current_reply, "content", None) or ""
-        result = validator.validate(stage, content, **validate_kwargs)
+        # 让校验器感知当前重试轮次（context_assessment 兜底据此决定重试或放行）。
+        result = validator.validate(stage, content, _attempt=attempt, **validate_kwargs)
 
         if isinstance(result, Ok):
             if attempt > 0 and previous_obj is not None:

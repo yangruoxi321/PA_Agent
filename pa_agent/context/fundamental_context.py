@@ -24,28 +24,38 @@ logger = logging.getLogger(__name__)
 # 并行抓取 join 上限(秒)：个股/宏观各自内部已有超时，这里只兜底防卡死。
 _GATHER_JOIN_TIMEOUT_S = 35.0
 
-_GUIDANCE = (
-    "> 以下为程序抓取的基本面/资金面/宏观/情绪信息，**必须与价格行为交叉验证，不可忽略**：\n"
-    "> 1）判断它与你的技术方向是「确认 confirms」「背离 diverges」还是「中性 neutral」；\n"
-    "> 2）据此在 `diagnosis_confidence` 上体现影响（确认可上调、背离应下调），"
-    "并在输出的 `context_assessment` 字段写明 `stance` / `confidence_adjustment`(-20~+20) /"
-    " `note`(一句中文，点明哪一项确认或背离)；\n"
-    "> 3）方向判断仍以价格行为为主，但基本面/资金面/宏观若明显背离，"
-    "**必须在分析中显式指出并据此压低信心**（如技术看多但估值极高+主力派发→下调信心）。\n"
-    "> \n"
-    "> 信号解读（仅作方向参考，非硬规则，最终以价格行为定）：\n"
-    "> · 估值分位高 / PE·PS 极高 = 多头风险、利于空头确认；分位低 = 反之；\n"
-    "> · 主力(特大+大)净流入 > 散户 = 资金面偏多（吸筹）；主力净流出 = 偏空（派发）；\n"
-    "> · 做空占比高 = 警惕（下行确认 或 轧空燃料，二者取决于价格行为）；\n"
-    "> · 分析师一致买入/卖出、宏观风险偏好 = 情绪类弱信号，可能已反映在价，勿当主依据。\n"
-    "> \n"
-    "> 时间尺度（避免尺度错配）：估值 / 财报 / 分析师 / 营收 = **慢变量**，"
-    "只用于调整信心权重，几乎不影响当下方向；主力资金流 / 当日净流入 = **快变量**，"
-    "可参与近期方向的确认或背离判断。"
+# 基本面块开头标记——校验层据此判断本次 prompt 是否注入了基本面。
+FUNDAMENTAL_BLOCK_MARKER = "以下为程序抓取的基本面"
+
+# 基本面分析方法引导语：外置为可编辑 txt（prompt_engineering/基本面分析方法.txt），
+# 改文件即生效，无需改代码。文件缺失/损坏/缺标记时回退内置兜底，绝不让主流程崩。
+_GUIDANCE_FILENAME = "基本面分析方法.txt"
+# 仅防崩占位（不含任何分析方法，方法全在 txt）。保留 marker 供校验层识别注入。
+_GUIDANCE_FALLBACK = (
+    "> " + FUNDAMENTAL_BLOCK_MARKER + "/资金面/宏观/情绪信息（分析方法见 "
+    "基本面分析方法.txt；该文件当前缺失，暂以价格行为为主、基本面仅作交叉验证）。"
 )
 
-# 个股基本面/资金面可用的市场
-_EQUITY_MARKETS = (Market.HK, Market.US)
+
+def _load_guidance() -> str:
+    """读取可编辑的基本面分析方法 txt；缺失/损坏/缺标记时回退内置兜底。"""
+    try:
+        from pa_agent.config.paths import PROMPT_DIR
+
+        text = (PROMPT_DIR / _GUIDANCE_FILENAME).read_text(encoding="utf-8").strip()
+        if text and FUNDAMENTAL_BLOCK_MARKER in text:
+            return text
+        logger.warning(
+            "%s 缺少必需标记『%s』，回退内置引导语",
+            _GUIDANCE_FILENAME,
+            FUNDAMENTAL_BLOCK_MARKER,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("%s 读取失败，回退内置引导语", _GUIDANCE_FILENAME, exc_info=True)
+    return _GUIDANCE_FALLBACK
+
+# 个股基本面/资金面可用的市场（日韩走 yfinance；日股若开通 moomoo 日本行情权限亦走 moomoo）
+_EQUITY_MARKETS = (Market.HK, Market.US, Market.JP, Market.KR)
 
 
 def _get(settings: Any, name: str, default: Any) -> Any:
@@ -304,7 +314,7 @@ def build_for_symbol(
 
         if not blocks:
             return ""
-        return _GUIDANCE + "\n\n" + "\n\n".join(blocks)
+        return _load_guidance() + "\n\n" + "\n\n".join(blocks)
     except Exception:
         logger.warning("build_for_symbol failed for %s", symbol, exc_info=True)
         return ""

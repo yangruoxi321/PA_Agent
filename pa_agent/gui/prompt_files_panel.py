@@ -36,6 +36,17 @@ class PromptFilesPanel(QWidget):
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
+        # user 消息动态注入（基本面/资金流/宏观/分析方法走 user 消息，非 system txt）
+        dyn_title = QLabel("user 消息动态注入（阶段一，非 txt）")
+        dyn_title.setStyleSheet("font-weight: bold; color: #3fb950;")
+        layout.addWidget(dyn_title)
+        self._dynamic_label = QLabel("（尚未开始）")
+        self._dynamic_label.setWordWrap(True)
+        self._dynamic_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        layout.addWidget(self._dynamic_label)
+
         s1_title = QLabel("阶段一 · 市场诊断")
         s1_title.setStyleSheet("font-weight: bold; color: #a371f7;")
         layout.addWidget(s1_title)
@@ -81,10 +92,28 @@ class PromptFilesPanel(QWidget):
             parts.append(f"阶段二另注入经验库 {experience_count} 条（非 txt）")
         self._extra_label.setText(" · ".join(parts))
 
+    def set_dynamic_injection(self, stage1_user_content: str) -> None:
+        """从阶段一真实 user 消息检测动态注入项，逐项显示 ✅/❌。"""
+        c = stage1_user_content or ""
+        checks = [
+            ("基本面分析方法.txt（分析方法引导）", "以下为程序抓取的基本面" in c),
+            ("个股基本面（估值/财报…）",
+             ("## 基本面" in c) or ("### 估值" in c) or ("估值现状" in c)),
+            ("主力资金流（特大/大/中/小单）", "主力资金流" in c),
+            ("量价资金面", "量价资金面" in c),
+            ("宏观环境", "宏观环境" in c),
+        ]
+        if not c:
+            self._dynamic_label.setText("（尚未开始）")
+            return
+        lines = [("✅ " if ok else "❌ ") + name for name, ok in checks]
+        self._dynamic_label.setText("\n".join(lines))
+
     def clear(self) -> None:
         self.set_stage1_files([])
         self.set_stage2_files([])
         self.set_extras(stage1_builtin=False, stage2_builtin=False, experience_count=0)
+        self._dynamic_label.setText("（尚未开始）")
 
     def set_latest_run(
         self,

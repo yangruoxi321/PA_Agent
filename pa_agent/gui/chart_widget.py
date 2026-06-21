@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtCore import QEvent, Qt, QTimer
+from PyQt6.QtWidgets import QLabel
 
 from pa_agent.gui.widgets.candle_item import CandleItem
 from pa_agent.gui.widgets.overlay_lines import OverlayLines
@@ -80,6 +81,22 @@ class ChartWidget(pg.PlotWidget):
         self._timer.timeout.connect(self._on_timer)
         self._timer.start()
 
+        # 左上角标的标签（叠加在图表上，显示当前品种+周期）
+        self._symbol_label = QLabel(self)
+        self._symbol_label.setStyleSheet(
+            "QLabel {"
+            " color: #e6edf3;"
+            " background-color: rgba(13, 17, 23, 150);"
+            " padding: 2px 8px;"
+            " border-radius: 4px;"
+            " font-size: 13px;"
+            " font-weight: bold;"
+            "}"
+        )
+        self._symbol_label.move(12, 8)
+        self._symbol_label.hide()
+        self._symbol_label.raise_()
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def set_seq_label_font_pt(self, point_size: int) -> None:
@@ -91,8 +108,22 @@ class ChartWidget(pg.PlotWidget):
         if self._latest_frame is not None:
             self._dirty = True
 
+    def _update_symbol_label(self, frame: "KlineFrame") -> None:
+        """更新左上角标的标签为「品种 周期」；无品种则隐藏。"""
+        symbol = str(getattr(frame, "symbol", "") or "").strip()
+        if not symbol:
+            self._symbol_label.hide()
+            return
+        timeframe = str(getattr(frame, "timeframe", "") or "").strip()
+        text = f"{symbol}　{timeframe}" if timeframe else symbol
+        self._symbol_label.setText(text)
+        self._symbol_label.adjustSize()
+        self._symbol_label.show()
+        self._symbol_label.raise_()
+
     def set_frame(self, frame: "KlineFrame", *, fit_view: bool = False) -> None:
         """Cache the latest KlineFrame; actual redraw happens on the timer."""
+        self._update_symbol_label(frame)
         if self._should_skip_redraw(frame):
             self._latest_frame = frame
             if fit_view or not self._first_frame_fitted:
@@ -105,6 +136,7 @@ class ChartWidget(pg.PlotWidget):
 
     def set_frame_now(self, frame: "KlineFrame", *, fit_view: bool = False) -> None:
         """Apply *frame* to the chart immediately (bypass 30 Hz throttle)."""
+        self._update_symbol_label(frame)
         if self._should_skip_redraw(frame):
             self._latest_frame = frame
             if fit_view and not self._first_frame_fitted:
@@ -345,6 +377,7 @@ class ChartWidget(pg.PlotWidget):
         self._dirty = False
         self._fit_on_next_render = False
         self._first_frame_fitted = False
+        self._symbol_label.hide()
 
     # ── Timer slot ────────────────────────────────────────────────────────────
 

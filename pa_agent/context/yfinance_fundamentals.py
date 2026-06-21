@@ -108,15 +108,17 @@ def to_yf_symbol(symbol: str, market: Market) -> str:
     - 港股：抽数字 → 长度 ≤4 则 ``zfill(4)`` → 加 ``.HK``
       (``700``/``HKEX:700`` → ``0700.HK``；``07709`` → ``07709.HK``)。
     - 美股：去交易所前缀后原样大写(``aapl`` → ``AAPL``；``brk.b`` → ``BRK.B``)。
+    - 日股：抽数字 + ``.T``(``7203``/``TSE:7203`` → ``7203.T``)。
+    - 韩股：抽数字 + ``.KS``(KOSPI)；已带 ``.KQ`` 的保留(KOSDAQ)。
     - 其他：原样返回。
     """
+    import re
+
     s = (symbol or "").strip()
     if ":" in s:
         s = s.split(":", 1)[1].strip()
 
     if market is Market.HK:
-        import re
-
         # 已带 .HK 的，规整数字部分
         body = s[:-3] if s.upper().endswith(".HK") else s
         digits = re.sub(r"\D", "", body)
@@ -128,6 +130,18 @@ def to_yf_symbol(symbol: str, market: Market) -> str:
 
     if market is Market.US:
         return s.upper()
+
+    if market is Market.JP:
+        # 日股代码可为纯数字(7203)或新版字母数字(285A)——保留原样，勿抽数字。
+        body = (s[:-2] if s.upper().endswith(".T") else s).strip().upper()
+        return f"{body}.T" if body else s.upper()
+
+    if market is Market.KR:
+        u = s.upper()
+        suffix = ".KQ" if u.endswith(".KQ") else ".KS"  # KOSDAQ 保留 .KQ，余默认 KOSPI
+        body = s[:-3] if (u.endswith(".KS") or u.endswith(".KQ")) else s
+        digits = re.sub(r"\D", "", body)
+        return f"{digits.zfill(6)}{suffix}" if digits else s.upper()
 
     return s
 
@@ -240,6 +254,7 @@ def _build_ctx_blocking(
     info = _safe_info(ticker)
     if not info:
         return ctx
+    _fill_missing_pe_pb(info)  # 韩股等 PE/PB 缺失时用 价/EPS、价/每股净值 自算
     ctx["fundamentals"] = {k: info.get(k) for k in _FUNDAMENTAL_KEYS}
     ctx["sentiment"] = {k: info.get(k) for k in _SENTIMENT_KEYS}
     ctx["flow"] = {k: info.get(k) for k in _FLOW_KEYS}
@@ -249,6 +264,34 @@ def _build_ctx_blocking(
     if use_cache and ctx["available"]:
         _CACHE[cache_key] = (time.monotonic(), dict(ctx))
     return ctx
+
+
+def _fill_missing_pe_pb(info: dict[str, Any]) -> None:
+    """PE/PB 缺失时自算（韩股 yfinance 不返回 trailingPE/priceToBook）。
+
+    PE = 现价 / 每股收益(TTM)；PB = 现价 / 每股净资产。就地写回 info。
+    """
+    px = info.get("currentPrice") or info.get("regularMarketPrice")
+    try:
+        px = float(px) if px is not None else None
+    except (TypeError, ValueError):
+        px = None
+    if px is None or px <= 0:
+        return
+    if info.get("trailingPE") is None:
+        try:
+            eps = float(info.get("trailingEps"))
+            if eps > 0:
+                info["trailingPE"] = round(px / eps, 4)
+        except (TypeError, ValueError):
+            pass
+    if info.get("priceToBook") is None:
+        try:
+            bvps = float(info.get("bookValue"))
+            if bvps > 0:
+                info["priceToBook"] = round(px / bvps, 4)
+        except (TypeError, ValueError):
+            pass
 
 
 def _safe_info(ticker: Any) -> dict[str, Any]:
