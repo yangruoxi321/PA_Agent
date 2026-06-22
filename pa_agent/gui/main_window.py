@@ -902,6 +902,17 @@ class MainWindow(QMainWindow):
             return ""
         return text.upper()
 
+    def _on_stage_prompt_injection(self, stage: str, system: str, user: str) -> None:
+        """阶段一 prompt 就绪时刷新「动态注入」面板（发送前即可见，不必等分析跑完）。"""
+        if stage != "stage1":
+            return
+        pf = getattr(self, "_prompt_files_panel", None)
+        if pf is not None:
+            try:
+                pf.set_dynamic_injection(user)
+            except Exception:  # noqa: BLE001
+                pass
+
     def _market_exchange_for_context(self) -> str:
         """供「多维上下文」交易所优先判定用的交易所；仅 TradingView 有意义。
 
@@ -2902,6 +2913,8 @@ class MainWindow(QMainWindow):
             self._worker.stage_prompt_ready.connect(panel.on_stage_prompt_ready)
             self._worker.reasoning_token.connect(panel.on_reasoning_token)
             self._worker.content_token.connect(panel.on_content_token)
+        # 阶段一 prompt 一就绪即刷新「动态注入」面板（发送前，思考刚开始即可见）
+        self._worker.stage_prompt_ready.connect(self._on_stage_prompt_injection)
 
         # Freeze on closed-only frame; immediate redraw so chart matches the AI table.
         self._chart_widget.set_frame_now(frame, fit_view=True)
