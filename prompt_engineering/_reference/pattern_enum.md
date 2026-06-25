@@ -11,6 +11,12 @@
 - `h1` / `h2` / `l1` / `l2`：High1/High2/Low1/Low2 计数入场结构。
 - `breakout_failure`：突破失败，突破后快速回到原结构内。
 - `failed_breakout`：`breakout_failure` 的同义标签；优先统一为 `breakout_failure`。
+- `failed_breakout_below`：**下破假突破 / 下沿扫单（做多）**——只在结构下沿，向下刺穿已识别支撑一点点后收回上方（下破失败）。专指下沿边界 setup，与泛化的 `breakout_failure` 区分。由程序确定性守卫确认（收盘后 + 向上跟随 + 下 1/3 边沿），不可对未收盘 bar 标记。
+- `liquidity_grab_candidate`：`failed_breakout_below` 的同义标签，强调止损池被扫；路由一致。
+- `liquidity_grab_pending`：最近一根是新鲜下插、尚无收盘跟随棒。**仅观察/提前挂单，不得据此买入**（铁律）。
+- `failed_breakout_above`：**冲高假突破 / 上沿诱多扫单（做空）**——下破做多的镜像。只在结构上沿，向上刺穿已识别阻力一点点后收回下方（上破失败），长上影、收下半部、向下跟随，处于上 1/3 边沿。常与 climax_triggered / trapped_traders / breakout_failure 同现。
+- `liquidity_grab_above_candidate`：`failed_breakout_above` 的同义标签。
+- `liquidity_grab_above_pending`：上沿新鲜冲高、尚无收盘下跟随棒。仅观察/提前挂单，不得据此做空（铁律）。
 - `breakout_test`：突破后回测突破位或信号价位。
 - `breakout_pullback`：突破回踩或突破测试。
 - `barbwire`：铁丝网或极紧凑交易区间。

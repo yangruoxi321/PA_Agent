@@ -5,6 +5,9 @@ import copy
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
 from pa_agent.ai.router import route_strategy_files
+# Import the single source of truth so the test's valid-file set can never drift
+# from the router's (and new strategy files are auto-covered).
+from pa_agent.ai.router import _ALL_VALID_FILES
 
 _CYCLE_POSITIONS = [
     "spike", "micro_channel", "tight_channel", "normal_channel", "broad_channel",
@@ -18,32 +21,13 @@ _PATTERNS = [
     "20gb",
     "barbwire",
     "failed_signal",
+    "failed_breakout_below",
+    "liquidity_grab_candidate",
+    "liquidity_grab_pending",
+    "failed_breakout_above",
+    "liquidity_grab_above_candidate",
+    "liquidity_grab_above_pending",
 ]
-
-_ALL_VALID_FILES = frozenset([
-    "提示词大纲_人设与思维方式.txt",
-    "市场诊断框架.txt",
-    "文件16-K线信号识别.txt",
-    "文件17-止损和止盈与仓位管理.txt",
-    "上涨通道分析识别.txt",
-    "上涨通道交易策略.txt",
-    "文件13-窄通道与宽通道策略.txt",
-    "下跌通道分析识别.txt",
-    "下跌通道交易策略.txt",
-    "极速上涨分析识别.txt",
-    "极速上涨交易策略.txt",
-    "极速下跌分析识别.txt",
-    "极速下跌交易策略.txt",
-    "震荡区间分析识别.txt",
-    "震荡区间交易策略.txt",
-    "文件14-楔形形态分析交易.txt",
-    "文件15-二次入场机会.txt",
-    "文件18-突破失败与突破测试.txt",
-    "文件19-H1H2-L1L2计数.txt",
-    "文件20-AlwaysIn与20GB.txt",
-    "文件21-铁丝网与无交易环境.txt",
-    "文件22-信号失败后的磁力位.txt",
-])
 
 
 def _make_stage1(cp: str, direction: str, patterns: list[str]) -> dict:

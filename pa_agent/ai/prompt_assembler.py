@@ -1634,6 +1634,11 @@ class PromptAssembler:
             f"若阶段一诊断含 `context_assessment`(基本面/资金面/宏观交叉验证),"
             f"须将其纳入 `trade_confidence` 权衡,并在 `decision.reasoning` 或 `key_factors` 中"
             f"显式说明其为确认还是背离;背离时应更克制。\n"
+            f"若阶段一诊断含 `liquidity_grab`(假突破/流动性扫单,见文件23,含 side/direction):"
+            f"status=candidate 时按文件23用 order_type=限价单处置——side=below(做多):挂被刺穿支撑下方一点+止损(下影低点下)+目标(回区间上沿/前高);"
+            f"side=above(做空):挂被刺穿阻力上方一点+止损(上影高点上)+目标(回区间下沿/前低);**绝不市价追**;"
+            f"trade_confidence 不得超过 confidence_cap,并注明「概率更高≠保证,真正保护是止损」。"
+            f"status=pending 时只可观察/提前挂单,不得据此下单;downgraded 时按普通走势处理。\n"
             f"注意:如果判断不下单,entry_price、take_profit_price、stop_loss_price、order_direction 必须全部为 null。\n\n"
             f"{_STAGE2_TAIL_REMINDER}"
         )
@@ -1671,6 +1676,7 @@ class PromptAssembler:
             "gate_trace",
             "gate_result",
             "context_assessment",
+            "liquidity_grab",
         )
         return {k: stage1_json[k] for k in keys if k in stage1_json}
 

@@ -64,6 +64,8 @@ STAGE1_DETECTED_PATTERNS_GUIDE = """
 | breakout_test | 突破后回测突破位、突破测试棒 | 程序自动加载（按 key 路由） |
 | breakout_pullback | 突破失败后的再次失败（突破回踩）顺势机会 | 程序自动加载（按 key 路由） |
 | breakout_failure / failed_breakout | 普通突破失败、假突破 | 程序自动加载（按 key 路由） |
+| failed_breakout_below / liquidity_grab_candidate | **只在结构下沿**：向下刺穿支撑一点点后收回（下破假突破/下沿扫单，做多）。收盘后 + 向上跟随；程序守卫确认或降级 | 文件23-假突破与流动性扫单.txt（+文件18/22/区间） |
+| failed_breakout_above / liquidity_grab_above_candidate | **只在结构上沿**：向上刺穿阻力一点点后收回（冲高假突破/上沿诱多扫单，做空）。收盘后 + 向下跟随；程序守卫确认或降级 | 文件23-假突破与流动性扫单.txt（+文件18/22/区间） |
 | always_in / ail / ais / 20gb / gap_bar | Always In、20GB、缺口棒等 | 文件20-AlwaysIn与20GB.txt |
 | barbwire / wire / overlap / middle_range | 铁丝网、重叠、区间中部 | 文件21-铁丝网与无交易环境.txt |
 | failed_signal / magnet / trapped_traders | 信号失败后磁力位、交易者被套 | 文件22-信号失败后的磁力位.txt |

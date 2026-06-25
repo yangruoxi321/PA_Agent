@@ -573,4 +573,15 @@ def normalize_stage1(
         except Exception as exc:  # noqa: BLE001
             logger.warning("refresh_stage1_support_resistance failed: %s", exc)
 
+        # Failed-breakout (下沿做多 / 上沿做空) liquidity-grab guard. Runs last so
+        # its downgrade/strip of the grab tag is authoritative over LLM prose.
+        # Reads the freshly-refreshed support/resistance levels; never originates
+        # an order (only tags a pattern + caps confidence, or strips/downgrades).
+        try:
+            from pa_agent.ai.liquidity_grab import guard_failed_breakout
+
+            guard_failed_breakout(out, kline_frame)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("guard_failed_breakout failed: %s", exc)
+
     return out

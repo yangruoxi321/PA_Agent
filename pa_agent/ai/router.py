@@ -45,6 +45,7 @@ _H1H2_FILE = "文件19-H1H2-L1L2计数.txt"
 _ALWAYS_IN_FILE = "文件20-AlwaysIn与20GB.txt"
 _BARBWIRE_FILE = "文件21-铁丝网与无交易环境.txt"
 _MAGNET_FILE = "文件22-信号失败后的磁力位.txt"
+_LIQUIDITY_GRAB_FILE = "文件23-假突破与流动性扫单.txt"
 
 # All valid file names (used for dedup validation)
 _ALL_VALID_FILES: frozenset[str] = frozenset([
@@ -70,6 +71,7 @@ _ALL_VALID_FILES: frozenset[str] = frozenset([
     "文件20-AlwaysIn与20GB.txt",
     "文件21-铁丝网与无交易环境.txt",
     "文件22-信号失败后的磁力位.txt",
+    "文件23-假突破与流动性扫单.txt",
 ])
 
 _CHANNEL_STATES = frozenset(["micro_channel", "tight_channel", "normal_channel", "broad_channel"])
@@ -136,6 +138,21 @@ def route_strategy_files(stage1_json: dict[str, Any]) -> list[str]:
         for p in ("failed_signal", "breakout_failure", "failed_breakout", "magnet", "trapped_traders")
     ):
         files.append(_MAGNET_FILE)
+    # Failed breakout / liquidity grab (下沿做多 or 上沿做空): load the dedicated
+    # boundary playbook + breakout-failure context + the stop-pool magnet logic +
+    # range strategy (it is a range/structure boundary setup, either side).
+    if any(
+        p in patterns
+        for p in (
+            "failed_breakout_below", "liquidity_grab_candidate", "liquidity_grab_pending",
+            "failed_breakout_above", "liquidity_grab_above_candidate",
+            "liquidity_grab_above_pending",
+        )
+    ):
+        files.append(_LIQUIDITY_GRAB_FILE)
+        files.append(_BREAKOUT_FAILURE_FILE)
+        files.append(_MAGNET_FILE)
+        files.extend(_RANGE_FILES)
 
     # ── Stable dedup (preserve first occurrence) ──────────────────────────────
     seen: set[str] = set()
